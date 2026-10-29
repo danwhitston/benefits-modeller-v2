@@ -26,3 +26,10 @@ checked_by = "documentary_evidence"
 type = "bool"
 controlled_by = ["decision_maker"]
 checked_by = "assessment"
+
+[inputs.housing_costs_element]
+type = "money"
+min = "0.00"
+max = "3000.00"
+controlled_by = ["landlord"]
+checked_by = "documentary_evidence"

@@ -68,6 +68,7 @@ def test_output_and_plain_names():
         "earned_income": 0,
         "aged_25_or_over": True,
         "has_lcw": False,
+        "housing_costs_element": 0,
     }
     plain = script.instance(fixed=household)
     assert plain.inputs["earned_income"] == "|earned_income|"

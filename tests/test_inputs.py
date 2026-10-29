@@ -74,16 +74,25 @@ def test_bounds_values():
     assert result["assessment_period_start"] == inputs.Bound(
         "date", days(date(2026, 4, 6)), days(date(2027, 4, 5))
     )
-    assert set(result) == {"earned_income", "assessment_period_start"}
+    assert result["housing_costs_element"] == inputs.Bound("money", 0, 300_000)
+    assert set(result) == {"earned_income", "assessment_period_start", "housing_costs_element"}
 
 
 def test_real_file_has_labels():
     specs = inputs.load(UC_INPUTS, scope())
-    assert list(specs) == ["assessment_period_start", "earned_income", "aged_25_or_over", "has_lcw"]
+    assert list(specs) == [
+        "assessment_period_start",
+        "earned_income",
+        "aged_25_or_over",
+        "has_lcw",
+        "housing_costs_element",
+    ]
     assert specs["earned_income"].controlled_by == ("employer", "claimant")
     assert specs["earned_income"].checked_by == "third_party_data"
     assert specs["has_lcw"].controlled_by == ("decision_maker",)
     assert specs["has_lcw"].bound is None
+    assert specs["housing_costs_element"].controlled_by == ("landlord",)
+    assert specs["housing_costs_element"].checked_by == "documentary_evidence"
 
 
 @pytest.mark.parametrize(

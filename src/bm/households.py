@@ -2,7 +2,7 @@
 
 `generate` returns, in this order and without repeats:
 
-1. The nine rows of `rules/uc_tests.catala_en`, each starting on 1 May 2026.
+1. The fourteen rows of `rules/uc_tests.catala_en`, each starting on 1 May 2026.
 2. For each age band and LCW combination, the work allowance and 1p either
    side of it. The allowance is read from the translated rules, so it is 0
    without LCW and the 1p below it falls outside the bounds and is dropped.
@@ -17,6 +17,10 @@
    lower bound up to that combination's last-penny earnings plus 100 pounds
    (or the upper bound, if lower). So most random households have an award
    above 0 and reach the taper, and some past the last penny have none.
+
+The housing costs element is 0 in groups 2 to 4. Only the fourteen rows of
+group 1 carry a non-zero element; boundaries and random draws for it are not
+generated yet.
 
 Every value is a Python `int` or `bool`, in SMT units: pence, and days since
 1970-01-01. Values from Z3 are converted explicitly.
@@ -39,18 +43,24 @@ AWARD = "bm.award"
 TABLE_START = date(2026, 5, 1)
 # Random earnings run up to the last-penny earnings plus this, in pence.
 RANDOM_MARGIN = 10_000
-# (earned income in pence, aged 25 or over, has LCW), in file order.
+# (earned income in pence, aged 25 or over, has LCW, housing costs element in
+# pence), in file order.
 # `test_table_rows_match_catala_tests` checks these against the file.
 TABLE_ROWS = [
-    (0, True, True),
-    (71_000, True, True),
-    (100_000, True, True),
-    (71_010, True, True),
-    (71_001, True, True),
-    (148_253, True, True),
-    (148_254, True, True),
-    (50_000, True, False),
-    (100_000, False, False),
+    (0, True, True, 0),
+    (71_000, True, True, 0),
+    (100_000, True, True, 0),
+    (71_010, True, True, 0),
+    (71_001, True, True, 0),
+    (148_253, True, True, 0),
+    (148_254, True, True, 0),
+    (50_000, True, False, 0),
+    (100_000, False, False, 0),
+    (0, True, True, 50_000),
+    (100_000, True, True, 50_000),
+    (42_710, True, True, 50_000),
+    (100_000, True, False, 50_000),
+    (100_000, True, True, 1),
 ]
 COMBINATIONS = [(aged_25, lcw) for aged_25 in (True, False) for lcw in (True, False)]
 
@@ -59,12 +69,15 @@ class NoLastPenny(RuntimeError):
     """The solver found no earnings in the bounds with an award of 0, or ran out of time."""
 
 
-def _household(start: date, earned: int, aged_25: bool, lcw: bool) -> dict[str, int | bool]:
+def _household(
+    start: date, earned: int, aged_25: bool, lcw: bool, housing: int = 0
+) -> dict[str, int | bool]:
     return {
         "assessment_period_start": units.days(start),
         "earned_income": int(earned),
         "aged_25_or_over": bool(aged_25),
         "has_lcw": bool(lcw),
+        "housing_costs_element": int(housing),
     }
 
 
@@ -91,6 +104,7 @@ def last_penny_earnings(
         "assessment_period_start": units.days(start),
         "aged_25_or_over": bool(aged_25_or_over),
         "has_lcw": bool(has_lcw),
+        "housing_costs_element": 0,
     }
     script = Script(module, bounds)
     household = script.instance(fixed=fixed)
@@ -122,8 +136,8 @@ def generate(
     """
     module = module or _uc_module()
     found: list[dict[str, int | bool]] = []
-    for earned, aged_25, lcw in TABLE_ROWS:
-        found.append(_household(TABLE_START, earned, aged_25, lcw))
+    for earned, aged_25, lcw, housing in TABLE_ROWS:
+        found.append(_household(TABLE_START, earned, aged_25, lcw, housing))
 
     for aged_25, lcw in COMBINATIONS:
         at_nil = _household(TABLE_START, 0, aged_25, lcw)
@@ -152,6 +166,7 @@ def generate(
                 "earned_income": int(rng.randint(earnings.min, top)),
                 "aged_25_or_over": aged_25,
                 "has_lcw": lcw,
+                "housing_costs_element": 0,
             }
         )
 

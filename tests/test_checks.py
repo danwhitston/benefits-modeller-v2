@@ -23,16 +23,19 @@ def _loaded():
     return translate.translate(scope), inputs.bounds(inputs.load(UC_BOUNDS, scope))
 
 
-def household(start: date, earned: int, aged_25: bool, lcw: bool) -> dict[str, int | bool]:
+def household(
+    start: date, earned: int, aged_25: bool, lcw: bool, housing: int = 0
+) -> dict[str, int | bool]:
     return {
         "assessment_period_start": (start - EPOCH).days,
         "earned_income": earned,
         "aged_25_or_over": aged_25,
         "has_lcw": lcw,
+        "housing_costs_element": housing,
     }
 
 
-def _catala_test_rows() -> list[tuple[date, int, bool, bool]]:
+def _catala_test_rows() -> list[tuple[date, int, bool, bool, int]]:
     """The inputs of each test scope in rules/uc_tests.catala_en, in file order."""
     rows = []
     for block in re.findall(r"output of Uc\.UniversalCredit with \{(.*?)\}", UC_TESTS.read_text(), re.S):
@@ -43,6 +46,7 @@ def _catala_test_rows() -> list[tuple[date, int, bool, bool]]:
                 int(Decimal(fields["earned_income"].lstrip("$").replace(",", "")) * 100),
                 fields["aged_25_or_over"] == "true",
                 fields["has_lcw"] == "true",
+                int(Decimal(fields["housing_costs_element"].lstrip("$").replace(",", "")) * 100),
             )
         )
     return rows
@@ -50,7 +54,7 @@ def _catala_test_rows() -> list[tuple[date, int, bool, bool]]:
 
 def test_table_rows_match_catala_tests():
     rows = _catala_test_rows()
-    assert len(rows) == 9
+    assert len(rows) == 14
     assert [(households.TABLE_START, *r) for r in households.TABLE_ROWS] == rows
 
 
@@ -84,19 +88,26 @@ def test_last_penny_earnings(aged_25, lcw):
 def test_generate_composition():
     module, bounds = _loaded()
     generated = households.generate(bounds, n_random=50, seed=1)
-    keys = {"assessment_period_start", "earned_income", "aged_25_or_over", "has_lcw"}
+    keys = {
+        "assessment_period_start",
+        "earned_income",
+        "aged_25_or_over",
+        "has_lcw",
+        "housing_costs_element",
+    }
     seen = set()
     for h in generated:
         assert set(h) == keys
         assert type(h["assessment_period_start"]) is int and type(h["earned_income"]) is int
         assert type(h["aged_25_or_over"]) is bool and type(h["has_lcw"]) is bool
+        assert type(h["housing_costs_element"]) is int
         for name, bound in bounds.items():
             assert bound.min <= h[name] <= bound.max
         seen.add(tuple(sorted(h.items())))
     assert len(seen) == len(generated), "households are not repeated"
 
-    def has(start, earned, aged_25, lcw):
-        return tuple(sorted(household(start, earned, aged_25, lcw).items())) in seen
+    def has(start, earned, aged_25, lcw, housing=0):
+        return tuple(sorted(household(start, earned, aged_25, lcw, housing).items())) in seen
 
     for row in _catala_test_rows():
         assert has(*row)
@@ -111,6 +122,7 @@ def test_generate_composition():
     for h in random_part:
         top = LAST_PENNY[(h["aged_25_or_over"], h["has_lcw"])] + households.RANDOM_MARGIN
         assert h["earned_income"] <= top
+        assert h["housing_costs_element"] == 0
     # Most random households reach the taper; the margin keeps some past it.
     awards = [evaluate.outputs(module, h)["award"] for h in random_part]
     assert sum(a > 0 for a in awards) >= 40
@@ -125,6 +137,7 @@ HALF_PENNY_OUTPUTS = {
     "standard_allowance": 42_490,
     "work_allowance": 71_000,
     "earnings_deduction": 6,
+    "maximum_amount": 42_490,
     "award": 42_484,
 }
 

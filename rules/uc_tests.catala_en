@@ -28,6 +28,7 @@ scope TestNoEarnings:
       -- earned_income: $0.00
       -- aged_25_or_over: true
       -- has_lcw: true
+      -- housing_costs_element: $0.00
     }
   assertion (computation.work_allowance = $710.00)
   assertion (computation.earnings_deduction = $0.00)
@@ -50,6 +51,7 @@ scope TestAtWorkAllowance:
       -- earned_income: $710.00
       -- aged_25_or_over: true
       -- has_lcw: true
+      -- housing_costs_element: $0.00
     }
   assertion (computation.work_allowance = $710.00)
   assertion (computation.earnings_deduction = $0.00)
@@ -72,6 +74,7 @@ scope TestAboveWorkAllowance:
       -- earned_income: $1,000.00
       -- aged_25_or_over: true
       -- has_lcw: true
+      -- housing_costs_element: $0.00
     }
   assertion (computation.work_allowance = $710.00)
   assertion (computation.earnings_deduction = $159.50)
@@ -94,6 +97,7 @@ scope TestHalfPennyRoundsUp:
       -- earned_income: $710.10
       -- aged_25_or_over: true
       -- has_lcw: true
+      -- housing_costs_element: $0.00
     }
   assertion (computation.work_allowance = $710.00)
   assertion (computation.earnings_deduction = $0.06)
@@ -116,6 +120,7 @@ scope TestSubPennyRoundsUp:
       -- earned_income: $710.01
       -- aged_25_or_over: true
       -- has_lcw: true
+      -- housing_costs_element: $0.00
     }
   assertion (computation.work_allowance = $710.00)
   assertion (computation.earnings_deduction = $0.01)
@@ -138,6 +143,7 @@ scope TestLastPennyOfAward:
       -- earned_income: $1,482.53
       -- aged_25_or_over: true
       -- has_lcw: true
+      -- housing_costs_element: $0.00
     }
   assertion (computation.work_allowance = $710.00)
   assertion (computation.earnings_deduction = $424.89)
@@ -160,6 +166,7 @@ scope TestAwardReachesZero:
       -- earned_income: $1,482.54
       -- aged_25_or_over: true
       -- has_lcw: true
+      -- housing_costs_element: $0.00
     }
   assertion (computation.work_allowance = $710.00)
   assertion (computation.earnings_deduction = $424.90)
@@ -182,6 +189,7 @@ scope TestNoLcw:
       -- earned_income: $500.00
       -- aged_25_or_over: true
       -- has_lcw: false
+      -- housing_costs_element: $0.00
     }
   assertion (computation.work_allowance = $0.00)
   assertion (computation.earnings_deduction = $275.00)
@@ -204,8 +212,131 @@ scope TestUnderTwentyFiveFloored:
       -- earned_income: $1,000.00
       -- aged_25_or_over: false
       -- has_lcw: false
+      -- housing_costs_element: $0.00
     }
   assertion (computation.work_allowance = $0.00)
   assertion (computation.earnings_deduction = $550.00)
   assertion (computation.award = $0.00)
+```
+
+## Case: housing costs element, no earnings
+
+```catala
+#[test]
+declaration scope TestHousingNoEarnings:
+  output computation content Uc.UniversalCredit
+
+scope TestHousingNoEarnings:
+  # Earnings are below the lower work allowance, so nothing is deducted.
+  # Maximum amount: 424.90 + 500.00 = 924.90, and 924.90 - 0.00 = 924.90.
+  definition computation equals
+    output of Uc.UniversalCredit with {
+      -- assessment_period_start: |2026-05-01|
+      -- earned_income: $0.00
+      -- aged_25_or_over: true
+      -- has_lcw: true
+      -- housing_costs_element: $500.00
+    }
+  assertion (computation.work_allowance = $427.00)
+  assertion (computation.earnings_deduction = $0.00)
+  assertion (computation.maximum_amount = $924.90)
+  assertion (computation.award = $924.90)
+```
+
+## Case: housing costs element, above the lower work allowance
+
+```catala
+#[test]
+declaration scope TestHousingAboveLower:
+  output computation content Uc.UniversalCredit
+
+scope TestHousingAboveLower:
+  # The element is above 0.00, so the lower work allowance of 427.00 applies.
+  # 1,000.00 - 427.00 = 573.00; 55% x 573.00 = 315.15 exactly.
+  # Maximum amount: 424.90 + 500.00 = 924.90, and 924.90 - 315.15 = 609.75.
+  definition computation equals
+    output of Uc.UniversalCredit with {
+      -- assessment_period_start: |2026-05-01|
+      -- earned_income: $1,000.00
+      -- aged_25_or_over: true
+      -- has_lcw: true
+      -- housing_costs_element: $500.00
+    }
+  assertion (computation.work_allowance = $427.00)
+  assertion (computation.earnings_deduction = $315.15)
+  assertion (computation.maximum_amount = $924.90)
+  assertion (computation.award = $609.75)
+```
+
+## Case: housing costs element, half penny rounds up
+
+```catala
+#[test]
+declaration scope TestHousingHalfPenny:
+  output computation content Uc.UniversalCredit
+
+scope TestHousingHalfPenny:
+  # 427.10 - 427.00 = 0.10; 55% x 10p = 5.5p, which rounds to 6p.
+  # Maximum amount: 424.90 + 500.00 = 924.90, and 924.90 - 0.06 = 924.84.
+  definition computation equals
+    output of Uc.UniversalCredit with {
+      -- assessment_period_start: |2026-05-01|
+      -- earned_income: $427.10
+      -- aged_25_or_over: true
+      -- has_lcw: true
+      -- housing_costs_element: $500.00
+    }
+  assertion (computation.work_allowance = $427.00)
+  assertion (computation.earnings_deduction = $0.06)
+  assertion (computation.maximum_amount = $924.90)
+  assertion (computation.award = $924.84)
+```
+
+## Case: housing costs element, no LCW
+
+```catala
+#[test]
+declaration scope TestHousingNoLcw:
+  output computation content Uc.UniversalCredit
+
+scope TestHousingNoLcw:
+  # Without LCW no work allowance applies, whatever the element: 55% x 1,000.00 = 550.00.
+  # Maximum amount: 424.90 + 500.00 = 924.90, and 924.90 - 550.00 = 374.90.
+  definition computation equals
+    output of Uc.UniversalCredit with {
+      -- assessment_period_start: |2026-05-01|
+      -- earned_income: $1,000.00
+      -- aged_25_or_over: true
+      -- has_lcw: false
+      -- housing_costs_element: $500.00
+    }
+  assertion (computation.work_allowance = $0.00)
+  assertion (computation.earnings_deduction = $550.00)
+  assertion (computation.maximum_amount = $924.90)
+  assertion (computation.award = $374.90)
+```
+
+## Case: housing costs element of one penny
+
+```catala
+#[test]
+declaration scope TestHousingOnePenny:
+  output computation content Uc.UniversalCredit
+
+scope TestHousingOnePenny:
+  # An element of 1p is above 0.00, so the lower work allowance of 427.00 applies.
+  # 1,000.00 - 427.00 = 573.00; 55% x 573.00 = 315.15 exactly.
+  # Maximum amount: 424.90 + 0.01 = 424.91, and 424.91 - 315.15 = 109.76.
+  definition computation equals
+    output of Uc.UniversalCredit with {
+      -- assessment_period_start: |2026-05-01|
+      -- earned_income: $1,000.00
+      -- aged_25_or_over: true
+      -- has_lcw: true
+      -- housing_costs_element: $0.01
+    }
+  assertion (computation.work_allowance = $427.00)
+  assertion (computation.earnings_deduction = $315.15)
+  assertion (computation.maximum_amount = $424.91)
+  assertion (computation.award = $109.76)
 ```

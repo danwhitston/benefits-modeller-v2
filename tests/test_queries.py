@@ -54,12 +54,18 @@ def test_emr_peak_is_taper():
 
 def test_emr_zero_within_work_allowance():
     module, bounds = _loaded()
+    # With no housing costs element the higher work allowance of 710.00 applies.
+    # An element above 0 lowers it to 427.00, and the range would reach the taper.
     result = queries.emr(
-        module, bounds, fixed={"has_lcw": True}, earnings_range=(0, 71_000 - 100)
+        module,
+        bounds,
+        fixed={"has_lcw": True, "housing_costs_element": 0},
+        earnings_range=(0, 71_000 - 100),
     )
     assert result.status == "found"
     assert result.rate == 0
     assert result.household["has_lcw"] is True
+    assert result.household["housing_costs_element"] == 0
     assert 0 <= result.household["earned_income"] <= 71_000 - 200
     check_household(result, 100)
 

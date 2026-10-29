@@ -31,12 +31,15 @@ def _loaded():
     return translate.translate(scope), inputs.bounds(inputs.load(UC_BOUNDS, scope))
 
 
-def household(start: date, earned: int, aged_25: bool, lcw: bool) -> dict[str, int | bool]:
+def household(
+    start: date, earned: int, aged_25: bool, lcw: bool, housing: int = 0
+) -> dict[str, int | bool]:
     return {
         "assessment_period_start": days(start),
         "earned_income": earned,
         "aged_25_or_over": aged_25,
         "has_lcw": lcw,
+        "housing_costs_element": housing,
     }
 
 
@@ -74,6 +77,11 @@ def households(draw):
         ),
         "aged_25_or_over": draw(st.booleans()),
         "has_lcw": draw(st.booleans()),
+        "housing_costs_element": draw(
+            st.integers(
+                bounds["housing_costs_element"].min, bounds["housing_costs_element"].max
+            )
+        ),
     }
 
 
@@ -83,27 +91,32 @@ def test_interpreter_matches_z3(inputs):
     assert_agree(inputs)
 
 
-# The nine cases in rules/uc_tests.catala_en, all starting on 1 May 2026:
-# (earned income in pence, aged 25 or over, has LCW).
+# The cases in rules/uc_tests.catala_en, all starting on 1 May 2026:
+# (earned income in pence, aged 25 or over, has LCW, housing costs element).
 TABLE_ROWS = [
-    (0, True, True),
-    (71000, True, True),
-    (100000, True, True),
-    (71010, True, True),
-    (71001, True, True),
-    (148253, True, True),
-    (148254, True, True),
-    (50000, True, False),
-    (100000, False, False),
+    (0, True, True, 0),
+    (71000, True, True, 0),
+    (100000, True, True, 0),
+    (71010, True, True, 0),
+    (71001, True, True, 0),
+    (148253, True, True, 0),
+    (148254, True, True, 0),
+    (50000, True, False, 0),
+    (100000, False, False, 0),
+    (0, True, True, 50000),
+    (100000, True, True, 50000),
+    (42710, True, True, 50000),
+    (100000, True, False, 50000),
+    (100000, True, True, 1),
 ]
 
 WORK_ALLOWANCE = 71000
 EDGE_EARNINGS = [0, 1000000, WORK_ALLOWANCE - 1, WORK_ALLOWANCE, WORK_ALLOWANCE + 1]
 
 
-@pytest.mark.parametrize(("earned", "aged_25", "lcw"), TABLE_ROWS)
-def test_interpreter_matches_z3_edges_table(earned, aged_25, lcw):
-    assert_agree(household(date(2026, 5, 1), earned, aged_25, lcw))
+@pytest.mark.parametrize(("earned", "aged_25", "lcw", "housing"), TABLE_ROWS)
+def test_interpreter_matches_z3_edges_table(earned, aged_25, lcw, housing):
+    assert_agree(household(date(2026, 5, 1), earned, aged_25, lcw, housing))
 
 
 @pytest.mark.parametrize("start", [date(2026, 4, 6), date(2026, 5, 1), date(2027, 4, 5)])
@@ -128,5 +141,16 @@ def test_interpreter_money_is_exact_pence():
         "standard_allowance": 42490,
         "work_allowance": 71000,
         "earnings_deduction": 6,
+        "maximum_amount": 42490,
         "award": 42484,
+    }
+
+    # With an element, the lower allowance applies and the maximum amount grows.
+    with_housing = household(date(2026, 5, 1), 100000, True, True, 50000)
+    assert catala_run.outputs(RULES, SCOPE, with_housing) == {
+        "standard_allowance": 42490,
+        "work_allowance": 42700,
+        "earnings_deduction": 31515,
+        "maximum_amount": 92490,
+        "award": 60975,
     }

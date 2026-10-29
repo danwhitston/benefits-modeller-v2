@@ -253,7 +253,7 @@ def test_check_exit_code_follows_unexplained_mismatches(capsys, monkeypatch):
 
     household = {
         "assessment_period_start": 20549, "earned_income": 148150,
-        "aged_25_or_over": True, "has_lcw": True,
+        "aged_25_or_over": True, "has_lcw": True, "housing_costs_element": 0,
     }
     unexplained = checks.Mismatch(household, 57, 57, 60, {"award": 57, "work_allowance": 0})
     monkeypatch.setattr(checks, "run", lambda households, module=None: [unexplained])
