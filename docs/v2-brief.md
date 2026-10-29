@@ -122,7 +122,7 @@ The repository is public. Methods, models and findings about classes of input an
 
 ## Open questions for design
 
-Questions 1, 2, 3 and 7, and parts of 8 and 9, are answered for milestone 1 in the [walking skeleton design](superpowers/specs/2026-10-29-walking-skeleton-design.md) (29 October 2026). Question 6 gets a separate spike in that milestone. Questions 4 and 5 stay open until milestone 2.
+Questions 1, 2, 3 and 7, and parts of 8 and 9, are answered for milestone 1 in the [walking skeleton design](superpowers/specs/2026-10-29-walking-skeleton-design.md) (29 October 2026). Question 6 is answered by the [quantifier tractability spike](spike-quantifier-tractability.md) (29 October 2026): at the first version's size (two periods) both forms are trivial for Z3 and cvc5, quantified queries degrade sharply with more free choices, and milestone 2 should expand judgement points into finite cases by default. Questions 4 and 5 stay open until milestone 2.
 
 1. Which artefacts come first: the Catala rules, or a minimal SMT translator for a handful of hand-written rules?
 2. Translate from which Catala intermediate representation, and how stable is it between releases?

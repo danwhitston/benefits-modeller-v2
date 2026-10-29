@@ -13,7 +13,7 @@ It also asks, as a probe beyond that size, where each form stops being practical
 
 ## The model
 
-Hand-written SMT-LIB, using the same encoding as the translator: money is `Int` pence, decimals are exact `Real`, and money times a rate is `bm_round(to_real(m) * r)` with half-up rounding away from zero.
+Hand-written SMT-LIB, using the same encoding as the translator: money is `Int` pence, decimals are exact `Real`, and money times a rate is `bm_round(to_real(m) * r)` rounded to the nearest penny, with halves rounded away from zero.
 
 - Two monthly assessment periods. Total earnings across both periods is a parameter, and the claimant chooses how it is split (whole pounds in the first period). The even split is the baseline.
 - One judgement point, "is the claimant part of a couple?", as a Boolean.
