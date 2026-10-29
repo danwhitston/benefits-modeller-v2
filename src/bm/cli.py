@@ -3,6 +3,10 @@
     bm translate IR -o OUT.smt2
     bm coverage IR --inputs TOML
     bm query emr IR --inputs TOML [--delta 100] [--timeout-ms 60000] [--json]
+    bm query timing IR --inputs TOML [--start YYYY-MM-DD] [--total POUNDS]
+        [--fix NAME=VALUE ...] [--cap 8] [--timeout-ms 60000] [--json]
+    bm query judgement IR NAME --inputs TOML [--start YYYY-MM-DD]
+        [--fix NAME=VALUE ...] [--timeout-ms 60000] [--json]
     bm check IR --inputs TOML [--n-random 50] [--seed 1]
     bm report IR --inputs TOML [--json] [--n-random 50] [--seed 1]
 
@@ -13,16 +17,27 @@ rules by the running Catala, and fails (exit 1) if not.
 Exit status: 0 when there are no errors, 1 on any failure (a missing file, a
 solver disagreement, a coverage gap, an unexplained mismatch), and 2 when a
 result is unknown, for example after a timeout. A failure takes precedence.
+Every `--json` output has a top-level `"unknown"` flag, and every text output
+ends by pointing to docs/model-gaps.md.
+
+`--fix NAME=VALUE` gives an input a value: money in pounds with two decimal
+places (`500.00`), a date as `YYYY-MM-DD`, a Boolean as `true` or `false`.
+`--total` takes pounds in the same form. A bad name or value exits 1.
 `--rules` names the rules directory recorded in the provenance block and
 checked against the IR; it defaults to the directory of the inputs file.
 """
 
 import argparse
 import json
+import re
 import sys
+from datetime import date
 from pathlib import Path
 
-from bm import coverage, inputs, ir, provenance, queries, report, solvers, translate
+from bm import coverage, inputs, ir, provenance, queries, report, solvers, strategic, translate, units
+from bm.inputs import InputSpec
+
+_POUNDS = re.compile(r"-?[0-9]+\.[0-9]{2}")
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -60,6 +75,36 @@ def _parser() -> argparse.ArgumentParser:
     e.add_argument("--delta", type=int, default=100, help="earnings rise, in pence")
     e.add_argument("--json", action="store_true")
 
+    def with_fix(p: argparse.ArgumentParser) -> None:
+        p.add_argument(
+            "--start",
+            default=strategic.DEFAULT_START.isoformat(),
+            help="start of the first assessment period, YYYY-MM-DD (default: %(default)s)",
+        )
+        p.add_argument(
+            "--fix",
+            action="append",
+            default=[],
+            metavar="NAME=VALUE",
+            help="give an input a value: money as 500.00, a date as YYYY-MM-DD, a Boolean as "
+            "true or false; repeat for more than one",
+        )
+
+    ti = kinds.add_parser("timing", help="most the claimant can gain by timing earnings")
+    with_ir(ti)
+    with_timeout(ti)
+    with_fix(ti)
+    ti.add_argument("--total", help="fix the total of earnings over both periods, in pounds")
+    ti.add_argument("--cap", type=int, default=strategic.DEFAULT_CASE_CAP, help="most judgement cases")
+    ti.add_argument("--json", action="store_true")
+
+    j = kinds.add_parser("judgement", help="what a decision maker's finding is worth")
+    with_ir(j)
+    j.add_argument("name", help="the Boolean judgement point, such as has_lcw")
+    with_timeout(j)
+    with_fix(j)
+    j.add_argument("--json", action="store_true")
+
     k = commands.add_parser("check", help="compare Catala, Z3 and PolicyEngine UK")
     with_ir(k)
     with_check(k)
@@ -76,17 +121,68 @@ def _rules_dir(args: argparse.Namespace) -> Path:
     return args.rules or args.inputs.resolve().parent
 
 
-def _load(args: argparse.Namespace):
+def _load_specs(args: argparse.Namespace):
     # Provenance first, so that an IR exported from other rules, or by another
     # Catala, fails here rather than as a solver result or a translator bug.
     prov = provenance.collect(_rules_dir(args), args.ir)
     scope = ir.load(args.ir)
     module = translate.translate(scope)
-    return prov, module, inputs.bounds(inputs.load(args.inputs, scope))
+    return prov, module, inputs.load(args.inputs, scope)
+
+
+def _load(args: argparse.Namespace):
+    prov, module, specs = _load_specs(args)
+    return prov, module, inputs.bounds(specs)
 
 
 def _print_text(sections: list[list[str]]) -> None:
+    sections = [*sections, [report.MODEL_GAPS_LINE]]
     print("\n\n".join("\n".join(s) for s in sections))
+
+
+def _money(option: str, text: str) -> int:
+    if not _POUNDS.fullmatch(text):
+        raise ValueError(f"{option}: {text!r} is not money in pounds with two decimal places, such as 500.00")
+    return units.pence(text)
+
+
+def _date(option: str, text: str) -> date:
+    try:
+        return date.fromisoformat(text)
+    except ValueError:
+        raise ValueError(f"{option}: {text!r} is not a date such as 2026-04-06") from None
+
+
+def parse_fixed(specs: dict[str, InputSpec], items: list[str]) -> dict[str, int | bool]:
+    """The `--fix NAME=VALUE` items as values in SMT units, read by each input's type.
+
+    Raises `ValueError`, with a one-line message, for an unknown name, a name
+    given twice, or a value that is not valid for the input's type.
+    """
+    fixed: dict[str, int | bool] = {}
+    for item in items:
+        name, equals, text = item.partition("=")
+        if not equals:
+            raise ValueError(f"--fix {item!r}: expected NAME=VALUE")
+        option = f"--fix {name}"
+        if name not in specs:
+            raise ValueError(f"{option}: {name} is not an input; the inputs are {', '.join(specs)}")
+        if name in fixed:
+            raise ValueError(f"{option}: {name} is given twice")
+        match specs[name].type:
+            case "money":
+                fixed[name] = _money(option, text)
+            case "date":
+                fixed[name] = units.days(_date(option, text))
+            case "bool" if text in ("true", "false"):
+                fixed[name] = text == "true"
+            case "bool":
+                raise ValueError(f"{option}: {text!r} is not true or false")
+            case "integer" if re.fullmatch(r"-?[0-9]+", text):
+                fixed[name] = int(text)
+            case kind:
+                raise ValueError(f"{option}: {text!r} is not a valid {kind} value")
+    return fixed
 
 
 def _translate(args: argparse.Namespace) -> int:
@@ -110,11 +206,49 @@ def _query_emr(args: argparse.Namespace) -> int:
     result = queries.emr(module, bounds, delta=args.delta, timeout_ms=args.timeout_ms)
     if args.json:
         data = report.emr_dict(result, args.delta, "earned_income")
-        prov_data = report.provenance_dict(prov)
-        print(json.dumps({"units": report.UNITS, **data, "provenance": prov_data}, indent=2))
+        _print_json(args, data, prov)
     else:
         text = report.emr_text(result, module.inputs, "earned_income", args.delta)
         _print_text([text, report.provenance_text(prov)])
+    return 2 if result.status == "unknown" else 0
+
+
+def _print_json(args: argparse.Namespace, data: dict, prov) -> None:
+    print(json.dumps({"units": report.UNITS, **data, "provenance": report.provenance_dict(prov)}, indent=2))
+
+
+def _query_timing(args: argparse.Namespace) -> int:
+    prov, module, specs = _load_specs(args)
+    result = strategic.timing(
+        module,
+        specs,
+        first_start=_date("--start", args.start),
+        fixed=parse_fixed(specs, args.fix),
+        total=None if args.total is None else _money("--total", args.total),
+        cap=args.cap,
+        timeout_ms=args.timeout_ms,
+    )
+    if args.json:
+        _print_json(args, report.timing_dict(result, specs), prov)
+    else:
+        _print_text([report.timing_text(result, specs), report.provenance_text(prov)])
+    return 2 if result.status == "unknown" else 0
+
+
+def _query_judgement(args: argparse.Namespace) -> int:
+    prov, module, specs = _load_specs(args)
+    result = strategic.judgement_value(
+        module,
+        specs,
+        point=args.name,
+        start=_date("--start", args.start),
+        fixed=parse_fixed(specs, args.fix),
+        timeout_ms=args.timeout_ms,
+    )
+    if args.json:
+        _print_json(args, report.judgement_dict(result, specs), prov)
+    else:
+        _print_text([report.judgement_text(result, specs), report.provenance_text(prov)])
     return 2 if result.status == "unknown" else 0
 
 
@@ -144,6 +278,8 @@ def main(argv: list[str] | None = None) -> int:
         ("translate", None): _translate,
         ("coverage", None): _coverage,
         ("query", "emr"): _query_emr,
+        ("query", "timing"): _query_timing,
+        ("query", "judgement"): _query_judgement,
         ("check", None): _check,
         ("report", None): _report,
     }[(args.command, getattr(args, "query", None))]
