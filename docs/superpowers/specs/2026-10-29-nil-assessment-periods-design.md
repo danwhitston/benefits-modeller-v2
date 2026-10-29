@@ -148,9 +148,9 @@ A test checks that every input shared with `uc.inputs.toml` (age, housing, LCW, 
 
 ### 3. Exporter and bm-ir version 1
 
-In Catala 1.3.0's default calculus a declared sub-scope appears as two kinds of `let` in the scope body: `CallingSubScope` and `DestructuringSubScopeResults`. Both are refused today. Checked on 29 October 2026 with a throwaway probe.
+In Catala 1.3.0's default calculus a declared sub-scope appears as a scope variable definition of the sub-scope's struct type, whose expression applies the sub-scope's function to its input struct. Later uses are struct accesses on that variable. The exporter refuses this today, at the application. Checked on 29 October 2026 with throwaway probes (the plan, ruling 3).
 
-- **Inlining.** On `CallingSubScope`, the exporter finds the called scope's body in the same program and walks it with the existing walker, prefixing every name with the sub-scope's name (`step_1.period.award`). Each of the sub-scope's inputs becomes a definition whose expression is the caller's argument. `DestructuringSubScopeResults`, and later field accesses such as `step_1.award`, become references to the prefixed definitions. Inlining nests, so a window, its steps and their `UniversalCredit` periods export as one flat list.
+- **Inlining.** On such a definition, the exporter finds the called scope's body in the same program and walks it with the existing walker, prefixing every name with the sub-scope's name (`step_1.period.award`). Each of the sub-scope's inputs becomes a definition whose expression is the caller's argument. Field accesses such as `step_1.award` become references to the prefixed definitions. Inlining nests, so a window, its steps and their `UniversalCredit` periods export as one flat list.
 - **Still refused,** with the existing "Unsupported construct" error: the direct form `output of <Scope> with { ... }`, calls across modules, and recursion.
 - **bm-ir version 1.** The node types do not change. `inputs` holds the top scope's inputs only. `definitions` includes the prefixed definitions of sub-scopes, still in dependency order. The version changes because a name no longer has to be a variable of the top scope. `docs/bm-ir.md` documents the naming rule.
 - **`make export`** also writes `build/claim_window.bm-ir.json` and the three probe scopes. The `UniversalCredit` export is unchanged, for the milestone 1 and 2 queries and the differential check.
@@ -159,7 +159,7 @@ In Catala 1.3.0's default calculus a declared sub-scope appears as two kinds of 
 ### 4. Translator
 
 - **Prefixed names** are valid SMT-LIB symbols as they stand.
-- **Rates with no terminating decimal form.** Money times p/q is written today as `bm_round` of an exact product with the constant `(/ p.0 q.0)`. The brief records that Z3's linearity check rejects that form for such rates. The nil UC threshold multiplies by 20/11. The fix writes money × p/q as integer arithmetic on pence, a division by the constant 2q with Catala's rounding (to the nearest penny, halves away from zero, as `o_mult_mon_rat`), which is linear for both solvers. The exact encoding is settled at plan time against the installed Z3 and cvc5.
+- **Rates with no terminating decimal form.** Money times p/q is written as `bm_round` of an exact product with the constant `(/ p.0 q.0)`. The brief records that Z3's linearity check rejects that form for such rates, which the nil UC threshold (× 20/11) needs. Checked at plan time on 29 October 2026, Z3 5.3.2 and cvc5 1.4.2 both accept it with plain checks, so the encoding stays, pinned by tests, and the brief is corrected (the plan, ruling 1).
 - **`--relaxed`** (probe only) replaces `bm_round` with exact rational arithmetic, so money is real-valued. The provenance records "relaxed, not the rules". No query reports a relaxed result as a finding.
 - **Tests:** `bm_round` with 20/11 and 11/20, against Catala's interpreter, across signs and half-penny ties. The agreement test between Catala and Z3 covers `ClaimWindow`.
 
@@ -167,7 +167,7 @@ In Catala 1.3.0's default calculus a declared sub-scope appears as two kinds of 
 
 A new module, because `bm.strategic` is already 568 lines. It reuses the household builder in `bm.household`, `optimise_and_confirm` in `bm.solvers`, and case expansion. Milestone 2's `timing` query stays as it is: it is the special case of two periods above nil.
 
-**What the caller gives:** an optional total of earnings, an optional first start date (6 April 2026 by default, as in milestone 2), optional fixed household facts, and the number of periods (3, or 4 to 6 for the probe).
+**What the caller gives:** an optional total of earnings, an optional first start date (6 April 2026 by default, as in milestone 2), optional fixed household facts, and the window scope's IR (3 periods, or 4 to 6 for the probe).
 
 **Copies.** One script holds several copies of the window for the same household and total. "Even" is the split as even as possible to the penny, with the remainder in the earliest periods.
 
@@ -192,9 +192,9 @@ Every copy, the even split included, has an award of at least 1p in its last per
 
 ### 6. Report and CLI
 
-- `bm query window [--total £] [--start DATE] [--fix NAME=VALUE ...] [--periods N]`.
+- `bm query window IR [--total £] [--start DATE] [--fix NAME=VALUE ...] [--probe] [--relaxed]`. The window's length is read from the IR (the plan, ruling 4).
 - **The result** records the query, the cases, the fixed facts, the start dates, the figures for each case, and a witness trace for each figure: each period's earnings, earnings used, award, entitlement, surplus and thresholds, with every input's labels. It records the excluded splits and households, which figures are lower bounds, and which checks ran.
-- **Probe runs** (`--periods` above 3, or `--relaxed`) are labelled as probes in the JSON and text output. They are never presented as findings. `--relaxed` is refused unless `--periods` is given explicitly.
+- **Probe runs** (`--probe`) are labelled as probes in the JSON and text output. They are never presented as findings. A window longer than 3 periods, and `--relaxed`, are refused without `--probe`.
 - **Exit status** as now: 0 for definite answers, 1 for a disagreement between solvers or between replay and Z3, and 2 for *unknown*. The top-level `"unknown"` flag applies.
 - The text report ends with a pointer to `docs/model-gaps.md`.
 
