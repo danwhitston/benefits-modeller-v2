@@ -1,14 +1,42 @@
-# Bounds for the non-boolean inputs of the Catala scope UniversalCredit.
-# Money is a decimal string in pounds. Dates are TOML dates.
+# The inputs of the Catala scope UniversalCredit, one table each.
+#
+# type: the input's type in the scope. Money is a decimal string in pounds and
+#   dates are TOML dates. Booleans have no range.
+# min, max: inclusive bounds, for money, date and integer inputs only.
+# controlled_by: who can change the value. Any of claimant, employer, landlord,
+#   decision_maker and nobody.
+# checked_by: how the value is checked. One of third_party_data,
+#   documentary_evidence, claimant_declaration, assessment and dwp_records.
+#
 # The rules hold 2026/27 rates only, so the date range stops before the next
 # uprating.
 
+# The assessment period start follows from the date of claim, which the
+# claimant chooses.
 [inputs.assessment_period_start]
 type = "date"
 min = 2026-04-06
 max = 2027-04-05
+controlled_by = ["claimant"]
+checked_by = "dwp_records"
 
+# Employed earnings arrive through HMRC's Real Time Information feed. Their
+# timing and amount can be shaped by the employer or by the claimant.
+# Self-employed earnings, when they are added, are a separate input with
+# checked_by = "claimant_declaration", because they are checked differently.
 [inputs.earned_income]
 type = "money"
 min = "0.00"
 max = "10000.00"
+controlled_by = ["employer", "claimant"]
+checked_by = "third_party_data"
+
+[inputs.aged_25_or_over]
+type = "bool"
+controlled_by = ["nobody"]
+checked_by = "documentary_evidence"
+
+[inputs.has_lcw]
+type = "bool"
+controlled_by = ["decision_maker"]
+checked_by = "assessment"

@@ -6,9 +6,8 @@ from pathlib import Path
 
 import pytest
 
-from bm import bounds as bounds_mod
-from bm import evaluate, ir, queries, solvers, translate
-from bm.bounds import Bound
+from bm import evaluate, inputs, ir, queries, solvers, translate
+from bm.inputs import Bound
 from bm.ir import Pos, Var
 from bm.translate import Obligation, SmtModule
 
@@ -20,7 +19,7 @@ UC_BOUNDS = ROOT / "rules" / "uc.inputs.toml"
 @cache
 def _loaded():
     scope = ir.load(UC_IR)
-    return translate.translate(scope), bounds_mod.load(UC_BOUNDS, scope)
+    return translate.translate(scope), inputs.bounds(inputs.load(UC_BOUNDS, scope))
 
 
 def check_household(result: queries.EmrResult, delta: int) -> None:
@@ -95,7 +94,7 @@ WIDE_DATES = ROOT / "tests" / "fixtures" / "uc_wide_dates.inputs.toml"
 
 def test_emr_excludes_households_catala_rejects():
     module, _ = _loaded()
-    wide = bounds_mod.load(WIDE_DATES, ir.load(UC_IR))
+    wide = inputs.bounds(inputs.load(WIDE_DATES, ir.load(UC_IR)))
     # Before 6 April 2026 no rate applies, so Catala stops with an error and
     # no household is left to compare.
     with pytest.raises(queries.NoHousehold):

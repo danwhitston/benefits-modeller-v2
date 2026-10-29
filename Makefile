@@ -32,4 +32,4 @@ export: build
 # The differential check: Catala, Z3 and PolicyEngine UK on generated households.
 # Exits 1 on a mismatch that docs/mismatches.md does not explain.
 check: export
-	uv run bm check build/uc.bm-ir.json --bounds rules/uc.inputs.toml
+	uv run bm check build/uc.bm-ir.json --inputs rules/uc.inputs.toml

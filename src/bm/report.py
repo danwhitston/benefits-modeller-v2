@@ -21,8 +21,7 @@ from dataclasses import dataclass
 from fractions import Fraction
 from pathlib import Path
 
-from bm import bounds as bounds_mod
-from bm import coverage, ir, provenance, queries, translate, units
+from bm import coverage, inputs, ir, provenance, queries, translate, units
 from bm.coverage import CoverageFinding
 from bm.ir import Var
 from bm.provenance import Provenance
@@ -83,7 +82,7 @@ def differential(
 
 def build(
     ir_path: Path,
-    bounds_path: Path,
+    inputs_path: Path,
     rules: Path,
     n_random: int = 50,
     seed: int = 1,
@@ -94,7 +93,7 @@ def build(
     prov = provenance.collect(rules, ir_path)
     scope = ir.load(ir_path)
     module = translate.translate(scope)
-    bounds = bounds_mod.load(bounds_path, scope)
+    bounds = inputs.bounds(inputs.load(inputs_path, scope))
     return Report(
         scope=scope.name,
         inputs=module.inputs,

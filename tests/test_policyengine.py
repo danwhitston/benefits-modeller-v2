@@ -1,8 +1,12 @@
 from datetime import date
+from pathlib import Path
 
-from bm import policyengine
+from bm import inputs, ir, policyengine
 
 EPOCH = date(1970, 1, 1)
+ROOT = Path(__file__).resolve().parent.parent
+UC_IR = ROOT / "build" / "uc.bm-ir.json"
+UC_INPUTS = ROOT / "rules" / "uc.inputs.toml"
 
 
 def days(d: date) -> int:
@@ -37,3 +41,7 @@ def test_pe_period_pinned():
     assert policyengine.award(before) == 12_514
     assert policyengine.award(after) == 14_990
 
+
+def test_mapping_covers_exactly_the_registry_inputs():
+    # A new input needs code in `policyengine.award`; this fails until it has some.
+    assert policyengine.INPUT_NAMES == set(inputs.load(UC_INPUTS, ir.load(UC_IR)))

@@ -12,8 +12,7 @@ import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
-from bm import bounds as bounds_mod
-from bm import catala_run, evaluate, ir, translate
+from bm import catala_run, evaluate, inputs, ir, translate
 
 ROOT = Path(__file__).resolve().parent.parent
 RULES = ROOT / "rules" / "uc.catala_en"
@@ -29,7 +28,7 @@ def days(d: date) -> int:
 @cache
 def _loaded():
     scope = ir.load(UC_IR)
-    return translate.translate(scope), bounds_mod.load(UC_BOUNDS, scope)
+    return translate.translate(scope), inputs.bounds(inputs.load(UC_BOUNDS, scope))
 
 
 def household(start: date, earned: int, aged_25: bool, lcw: bool) -> dict[str, int | bool]:

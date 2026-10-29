@@ -27,7 +27,7 @@ from fractions import Fraction
 from typing import Literal
 
 from bm import solvers
-from bm.bounds import Bound
+from bm.inputs import Bound
 from bm.coverage import declarations
 from bm.translate import SORTS, SmtModule, apply, literal, quote
 

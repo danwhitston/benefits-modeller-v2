@@ -8,8 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from bm import bounds as bounds_mod
-from bm import catala_run, checks, evaluate, households, ir, translate
+from bm import catala_run, checks, evaluate, households, inputs, ir, translate
 
 ROOT = Path(__file__).resolve().parent.parent
 UC_IR = ROOT / "build" / "uc.bm-ir.json"
@@ -21,7 +20,7 @@ EPOCH = date(1970, 1, 1)
 @cache
 def _loaded():
     scope = ir.load(UC_IR)
-    return translate.translate(scope), bounds_mod.load(UC_BOUNDS, scope)
+    return translate.translate(scope), inputs.bounds(inputs.load(UC_BOUNDS, scope))
 
 
 def household(start: date, earned: int, aged_25: bool, lcw: bool) -> dict[str, int | bool]:

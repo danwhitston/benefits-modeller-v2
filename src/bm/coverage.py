@@ -14,7 +14,7 @@ from dataclasses import dataclass
 from typing import Literal
 
 from bm import solvers
-from bm.bounds import Bound
+from bm.inputs import Bound
 from bm.ir import Pos
 from bm.translate import SORTS, SmtModule, literal, quote
 

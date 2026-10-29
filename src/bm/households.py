@@ -27,7 +27,7 @@ from datetime import date
 from pathlib import Path
 
 from bm import evaluate, ir, solvers, translate, units
-from bm.bounds import Bound
+from bm.inputs import Bound
 from bm.coverage import declarations
 from bm.translate import SmtModule, apply, literal, quote
 

@@ -20,7 +20,7 @@ The versions used and tested on macOS on 29 October 2026 are Catala 1.3.0 on OCa
    If opam's sandbox (bubblewrap) fails on Linux, for example under AppArmor limits on user namespaces on native Ubuntu, use `opam init --bare --no-setup --disable-sandboxing`, as CI does.
 3. Install the Python dependencies with [uv](https://docs.astral.sh/uv/): `uv sync`
 4. Build the rules and run the tests (about 4.5 minutes): `make build test`
-5. Print the report: `uv run bm report build/uc.bm-ir.json --bounds rules/uc.inputs.toml`. This needs `build/uc.bm-ir.json`, which `make export` writes and `make test` runs first. It checks 73 households, the default 50 random ones plus 23 fixed ones (the worked rows in the rules tests, earnings at the work allowance and 1p either side, and the last-penny earnings), and takes about 3 minutes.
+5. Print the report: `uv run bm report build/uc.bm-ir.json --inputs rules/uc.inputs.toml`. This needs `build/uc.bm-ir.json`, which `make export` writes and `make test` runs first. It checks 73 households, the default 50 random ones plus 23 fixed ones (the worked rows in the rules tests, earnings at the work allowance and 1p either side, and the last-penny earnings), and takes about 3 minutes.
 
 The report gives the peak marginal rate with an example household, whether Catala can stop with an error for any household in the bounds, the number of mismatches between Catala, Z3 and PolicyEngine UK, and the tool versions, code commit and rules commit that produced it. Add `--json` for the same content as data. `bm --help` lists the other commands, and `make check` runs the differential check alone.
 

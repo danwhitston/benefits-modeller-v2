@@ -108,7 +108,7 @@ def test_provenance_rejects_rules_newer_than_the_ir(tmp_path: Path):
 
 def test_report_with_a_mismatched_ir_fails_before_the_slow_checks(tmp_path: Path, capsys):
     old = write_ir(tmp_path / "old.bm-ir.json", "1.2.0")
-    assert cli.main(["report", str(old), "--bounds", UC_BOUNDS, "--n-random", "1"]) == 1
+    assert cli.main(["report", str(old), "--inputs", UC_BOUNDS, "--n-random", "1"]) == 1
     assert "make export" in capsys.readouterr().err
 
 
@@ -119,21 +119,21 @@ def test_translate_writes_smt2(tmp_path: Path, capsys):
 
 
 def test_coverage_uc_has_no_gaps(capsys):
-    assert cli.main(["coverage", UC_IR, "--bounds", UC_BOUNDS]) == 0
+    assert cli.main(["coverage", UC_IR, "--inputs", UC_BOUNDS]) == 0
     out = capsys.readouterr().out
     assert "no gaps" in out
     assert "Provenance" in out and "code commit" in out
 
 
 def test_query_emr_text(capsys):
-    assert cli.main(["query", "emr", UC_IR, "--bounds", UC_BOUNDS]) == 0
+    assert cli.main(["query", "emr", UC_IR, "--inputs", UC_BOUNDS]) == 0
     out = capsys.readouterr().out
     assert "55%" in out
     assert "earned_income" in out
 
 
 def test_query_emr_json(capsys):
-    assert cli.main(["query", "emr", UC_IR, "--bounds", UC_BOUNDS, "--json"]) == 0
+    assert cli.main(["query", "emr", UC_IR, "--inputs", UC_BOUNDS, "--json"]) == 0
     data = json.loads(capsys.readouterr().out)
     assert data["status"] == "found"
     assert data["rate"] == "11/20"
@@ -142,13 +142,13 @@ def test_query_emr_json(capsys):
 
 
 def test_report_unknown_exit_code(capsys):
-    code = cli.main(["query", "emr", UC_IR, "--bounds", UC_BOUNDS, "--timeout-ms", "1"])
+    code = cli.main(["query", "emr", UC_IR, "--inputs", UC_BOUNDS, "--timeout-ms", "1"])
     assert code == 2
     assert "unknown" in capsys.readouterr().out
 
 
 def test_missing_file_exits_1(capsys):
-    assert cli.main(["coverage", "no-such.json", "--bounds", UC_BOUNDS]) == 1
+    assert cli.main(["coverage", "no-such.json", "--inputs", UC_BOUNDS]) == 1
     assert "no-such.json" in capsys.readouterr().err
 
 
@@ -234,7 +234,7 @@ def test_json_report_keys_and_exact_rate():
 
 
 def test_report_json_shape(capsys):
-    code = cli.main(["report", UC_IR, "--bounds", UC_BOUNDS, "--json", "--n-random", "5"])
+    code = cli.main(["report", UC_IR, "--inputs", UC_BOUNDS, "--json", "--n-random", "5"])
     assert code == 0  # every mismatch must be explained by the rounding predicate
     data = json.loads(capsys.readouterr().out)
     assert {"emr", "coverage", "mismatches", "provenance"} <= set(data)
@@ -257,10 +257,10 @@ def test_check_exit_code_follows_unexplained_mismatches(capsys, monkeypatch):
     }
     unexplained = checks.Mismatch(household, 57, 57, 60, {"award": 57, "work_allowance": 0})
     monkeypatch.setattr(checks, "run", lambda households, module=None: [unexplained])
-    assert cli.main(["check", UC_IR, "--bounds", UC_BOUNDS, "--n-random", "2"]) == 1
+    assert cli.main(["check", UC_IR, "--inputs", UC_BOUNDS, "--n-random", "2"]) == 1
     assert "UNEXPLAINED" in capsys.readouterr().out
     monkeypatch.setattr(checks, "run", lambda households, module=None: [])
-    assert cli.main(["check", UC_IR, "--bounds", UC_BOUNDS, "--n-random", "2"]) == 0
+    assert cli.main(["check", UC_IR, "--inputs", UC_BOUNDS, "--n-random", "2"]) == 0
 
 
 def test_translator_disagreement_exits_1(capsys, monkeypatch):
@@ -270,7 +270,7 @@ def test_translator_disagreement_exits_1(capsys, monkeypatch):
         raise checks.TranslatorDisagreement({"earned_income": 1}, "award: Catala 1, Z3 2")
 
     monkeypatch.setattr(checks, "run", disagree)
-    assert cli.main(["check", UC_IR, "--bounds", UC_BOUNDS, "--n-random", "2"]) == 1
+    assert cli.main(["check", UC_IR, "--inputs", UC_BOUNDS, "--n-random", "2"]) == 1
     assert "Catala 1, Z3 2" in capsys.readouterr().err
 
 
@@ -284,7 +284,7 @@ def test_check_on_a_stale_ir_fails_with_the_provenance_error(tmp_path: Path, cap
         raise AssertionError("the differential check ran on a stale IR")
 
     monkeypatch.setattr(checks, "run", must_not_run)
-    assert cli.main(["check", str(stale), "--bounds", UC_BOUNDS, "--n-random", "1"]) == 1
+    assert cli.main(["check", str(stale), "--inputs", UC_BOUNDS, "--n-random", "1"]) == 1
     err = capsys.readouterr().err
     assert "ProvenanceError" in err and "changed after" in err and "make export" in err
     assert "TranslatorBug" not in err

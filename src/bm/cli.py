@@ -1,10 +1,10 @@
 """The `bm` command.
 
     bm translate IR -o OUT.smt2
-    bm coverage IR --bounds TOML
-    bm query emr IR --bounds TOML [--delta 100] [--timeout-ms 60000] [--json]
-    bm check IR --bounds TOML [--n-random 50] [--seed 1]
-    bm report IR --bounds TOML [--json] [--n-random 50] [--seed 1]
+    bm coverage IR --inputs TOML
+    bm query emr IR --inputs TOML [--delta 100] [--timeout-ms 60000] [--json]
+    bm check IR --inputs TOML [--n-random 50] [--seed 1]
+    bm report IR --inputs TOML [--json] [--n-random 50] [--seed 1]
 
 Every command but `translate` takes `--rules` and prints a provenance block
 (`bm.provenance`). It first checks that the IR was exported from the current
@@ -14,7 +14,7 @@ Exit status: 0 when there are no errors, 1 on any failure (a missing file, a
 solver disagreement, a coverage gap, an unexplained mismatch), and 2 when a
 result is unknown, for example after a timeout. A failure takes precedence.
 `--rules` names the rules directory recorded in the provenance block and
-checked against the IR; it defaults to the directory of the bounds file.
+checked against the IR; it defaults to the directory of the inputs file.
 """
 
 import argparse
@@ -22,20 +22,19 @@ import json
 import sys
 from pathlib import Path
 
-from bm import bounds as bounds_mod
-from bm import coverage, ir, provenance, queries, report, solvers, translate
+from bm import coverage, inputs, ir, provenance, queries, report, solvers, translate
 
 
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="bm", description=__doc__.split("\n\n")[0])
     commands = parser.add_subparsers(dest="command", required=True)
 
-    def with_ir(p: argparse.ArgumentParser, bounds: bool = True) -> None:
+    def with_ir(p: argparse.ArgumentParser, has_inputs: bool = True) -> None:
         p.add_argument("ir", type=Path, help="bm-ir JSON file written by `make export`")
-        if bounds:
-            p.add_argument("--bounds", type=Path, required=True, help="inputs bounds TOML")
+        if has_inputs:
+            p.add_argument("--inputs", type=Path, required=True, help="inputs TOML")
             p.add_argument(
-                "--rules", type=Path, help="rules directory (default: the bounds file's directory)"
+                "--rules", type=Path, help="rules directory (default: the inputs file's directory)"
             )
 
     def with_timeout(p: argparse.ArgumentParser) -> None:
@@ -46,7 +45,7 @@ def _parser() -> argparse.ArgumentParser:
         p.add_argument("--seed", type=int, default=1)
 
     t = commands.add_parser("translate", help="write the scope as SMT-LIB")
-    with_ir(t, bounds=False)
+    with_ir(t, has_inputs=False)
     t.add_argument("-o", "--output", type=Path, required=True)
 
     c = commands.add_parser("coverage", help="find households where Catala stops with an error")
@@ -74,7 +73,7 @@ def _parser() -> argparse.ArgumentParser:
 
 
 def _rules_dir(args: argparse.Namespace) -> Path:
-    return args.rules or args.bounds.resolve().parent
+    return args.rules or args.inputs.resolve().parent
 
 
 def _load(args: argparse.Namespace):
@@ -83,7 +82,7 @@ def _load(args: argparse.Namespace):
     prov = provenance.collect(_rules_dir(args), args.ir)
     scope = ir.load(args.ir)
     module = translate.translate(scope)
-    return prov, module, bounds_mod.load(args.bounds, scope)
+    return prov, module, inputs.bounds(inputs.load(args.inputs, scope))
 
 
 def _print_text(sections: list[list[str]]) -> None:
@@ -129,7 +128,7 @@ def _check(args: argparse.Namespace) -> int:
 def _report(args: argparse.Namespace) -> int:
     r = report.build(
         args.ir,
-        args.bounds,
+        args.inputs,
         rules=_rules_dir(args),
         n_random=args.n_random,
         seed=args.seed,
@@ -151,7 +150,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         return handler(args)
     except (OSError, ValueError, RuntimeError, solvers.SolverDisagreement) as error:
-        # ValueError covers IrError, BoundsError, TranslateError and NoHousehold;
+        # ValueError covers IrError, InputsError, TranslateError and NoHousehold;
         # RuntimeError covers SolverError, CatalaRuntimeError, EvaluationError,
         # report.TranslatorBug and provenance.ProvenanceError.
         print(f"bm: {type(error).__name__}: {error}", file=sys.stderr)
