@@ -1,0 +1,86 @@
+import pytest
+
+from bm import solvers
+
+SOLVERS = ["z3", "cvc5"]
+
+SAT = """
+(declare-const |a b| Int)
+(declare-const flag Bool)
+(define-fun double ((x Int)) Int (* 2 x))
+(assert (= (double |a b|) 10))
+(assert flag)
+(check-sat)
+"""
+UNSAT = SAT.replace("(check-sat)", "(assert (not flag))\n(check-sat)")
+
+# x^3 + y^3 + z^3 = 33 with large positive variables: nothing a solver settles
+# in a millisecond.
+HARD = """
+(declare-const x Int)
+(declare-const y Int)
+(declare-const z Int)
+(assert (> x 1000))
+(assert (> y 1000))
+(assert (> z 1000))
+(assert (= (+ (* x x x) (* y y y) (* z z z)) 33333333333333333))
+(check-sat)
+"""
+
+
+@pytest.mark.parametrize("solver", SOLVERS)
+def test_solver_sat_unsat(solver):
+    sat = solvers.run(solver, SAT, 10_000)
+    assert sat.status == "sat"
+    assert sat.model == {"a b": 5, "flag": True}
+    assert all(type(v) in (int, bool) for v in sat.model.values())
+    assert sat.version
+    unsat = solvers.run(solver, UNSAT, 10_000)
+    assert unsat.status == "unsat"
+    assert unsat.model is None
+
+
+@pytest.mark.parametrize("solver", SOLVERS)
+def test_solver_timeout_is_unknown(solver):
+    result = solvers.run(solver, HARD, 1)
+    assert result.status == "unknown"
+    assert result.model is None
+
+
+def test_z3_maximize():
+    script = """
+(declare-const x Int)
+(assert (<= 0 x 7))
+(maximize x)
+(check-sat)
+"""
+    result = solvers.run("z3", script, 10_000)
+    assert result.status == "sat"
+    assert result.model == {"x": 7}
+
+
+@pytest.mark.parametrize("solver", SOLVERS)
+def test_real_valued_constant_is_an_error(solver):
+    with pytest.raises(solvers.SolverError):
+        solvers.run(solver, "(declare-const r Real)\n(assert (= r 0.5))\n(check-sat)", 10_000)
+
+
+@pytest.mark.parametrize("solver", SOLVERS)
+def test_malformed_script_is_an_error(solver):
+    with pytest.raises(solvers.SolverError):
+        solvers.run(solver, "(assert (= nothing 1))", 10_000)
+
+
+def test_versions():
+    versions = solvers.versions()
+    assert set(versions) == {"z3", "cvc5"}
+    assert versions["cvc5"] == "1.4.2"
+    assert versions["z3"].startswith("5.")
+
+
+def test_disagreement_carries_both_results():
+    a = solvers.SolverResult("sat", {"x": 1}, "z3 1")
+    b = solvers.SolverResult("unsat", None, "cvc5 1")
+    error = solvers.SolverDisagreement(a, b)
+    assert error.z3 is a and error.cvc5 is b
+    assert "sat" in str(error) and "unsat" in str(error)
