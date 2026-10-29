@@ -26,11 +26,13 @@ def test_load_uc_scope():
         "earned_income",
         "aged_25_or_over",
         "has_lcw",
+        "housing_costs_element",
     ]
     assert scope.outputs == [
         "standard_allowance",
         "work_allowance",
         "earnings_deduction",
+        "maximum_amount",
         "award",
     ]
     assert [d.name for d in scope.definitions] == ["deduction_rate", *scope.outputs]

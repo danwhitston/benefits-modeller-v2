@@ -157,6 +157,7 @@ def test_uc_outputs(earned, aged_25, lcw, deduction, award):
             "earned_income": earned,
             "aged_25_or_over": aged_25,
             "has_lcw": lcw,
+            "housing_costs_element": 0,
         },
     )
     assert result["earnings_deduction"] == deduction
@@ -248,22 +249,27 @@ def test_uc_module_shape():
         "standard_allowance": "|standard_allowance|",
         "work_allowance": "|work_allowance|",
         "earnings_deduction": "|earnings_deduction|",
+        "maximum_amount": "|maximum_amount|",
         "award": "|award|",
     }
     assert module.text.count("(define-fun bm_round ") == 1
     params = (
         "((|assessment_period_start| Int) (|earned_income| Int)"
-        " (|aged_25_or_over| Bool) (|has_lcw| Bool))"
+        " (|aged_25_or_over| Bool) (|has_lcw| Bool) (|housing_costs_element| Int))"
     )
     assert f"(define-fun |award| {params} Int " in module.text
     assert f"(define-fun |award.defined| {params} Bool " in module.text
     kinds = sorted((o.kind, o.definition) for o in module.obligations)
     assert kinds == [
         ("conflict", "standard_allowance"),
+        # Three work allowance rules, so three pairs that could conflict.
+        ("conflict", "work_allowance"),
+        ("conflict", "work_allowance"),
         ("conflict", "work_allowance"),
         ("empty", "award"),
         ("empty", "earnings_deduction"),
         ("empty", "earnings_deduction"),
+        ("empty", "maximum_amount"),
         ("empty", "standard_allowance"),
         ("empty", "work_allowance"),
     ]

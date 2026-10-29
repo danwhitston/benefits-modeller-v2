@@ -1,4 +1,4 @@
-.PHONY: build test export check
+.PHONY: build test test-fast export check
 
 # Catala comes from the local opam switch in _opam/, so every call goes through
 # `opam exec`. The exporter plugin needs no opam packages beyond those Catala
@@ -22,6 +22,12 @@ test: export
 	$(DUNE) test --root exporter
 	uv run pytest
 
+# As `test`, but skips the tests marked slow (the PolicyEngine UK ones).
+test-fast: export
+	$(CLERK) test
+	$(DUNE) test --root exporter
+	uv run pytest -m "not slow"
+
 # Writes the UniversalCredit scope as bm-ir JSON (see docs/bm-ir.md).
 export: build
 	$(DUNE) build --root exporter
@@ -32,4 +38,4 @@ export: build
 # The differential check: Catala, Z3 and PolicyEngine UK on generated households.
 # Exits 1 on a mismatch that docs/mismatches.md does not explain.
 check: export
-	uv run bm check build/uc.bm-ir.json --bounds rules/uc.inputs.toml
+	uv run bm check build/uc.bm-ir.json --inputs rules/uc.inputs.toml

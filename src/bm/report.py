@@ -1,9 +1,17 @@
-"""The report: peak marginal rate, coverage, differential check and provenance.
+"""The report: peak marginal rate, two strategic queries, coverage, differential check, provenance.
 
 `build` runs the queries and returns a `Report`. `to_text` and `to_json` render
 it; they show the same content. `exit_code` maps a report to the CLI exit
 status: 1 if a coverage gap was found or a mismatch is unexplained, else 2 if
-any result is unknown, else 0.
+any result is unknown, else 0. The JSON has a top-level `"unknown"` flag, true
+when any result in it is unknown.
+
+The strategic queries (`bm.strategic`) run with their defaults: the timing gain
+on `earned_income`, and the value of the decision maker's finding on `has_lcw`.
+Each witness input is shown with who controls it and how it is checked, from
+the labels in the inputs file. An unknown result is stated in capitals, a value
+that Z3 found and cvc5 could not confirm is never presented as an answer, and a
+missing value is never shown as nil.
 
 Mismatches between Catala, Z3 and PolicyEngine UK are split by
 `checks.rounding_stage_difference`, the predicate for a known, logged class of
@@ -18,21 +26,25 @@ dates, and the rate as a percentage, exact where it can be.
 import dataclasses
 import json
 from dataclasses import dataclass
-from datetime import date, timedelta
 from fractions import Fraction
 from pathlib import Path
 
-from bm import bounds as bounds_mod
-from bm import coverage, ir, provenance, queries, translate
+from bm import coverage, ir, provenance, queries, strategic, translate, units
+from bm import inputs as bm_inputs  # `inputs` is a parameter name below
 from bm.coverage import CoverageFinding
+from bm.inputs import InputSpec
 from bm.ir import Var
 from bm.provenance import Provenance
 from bm.queries import EmrResult
+from bm.strategic import JudgementResult, TimingResult, Witness
 from bm.translate import SmtModule
 
 UNITS = "money in pence; dates as days since 1970-01-01"
-EPOCH = date(1970, 1, 1)
 MISMATCH_DOC = "docs/mismatches.md"
+RULES_FILE = "uc.catala_en"
+MODEL_GAPS_LINE = "Model gaps that limit these findings: docs/model-gaps.md"
+TIMING_INPUT = "earned_income"
+JUDGEMENT_POINT = "has_lcw"
 
 
 @dataclass(frozen=True)
@@ -59,6 +71,9 @@ class Report:
     coverage: list[CoverageFinding]
     differential: Differential
     provenance: Provenance
+    specs: dict[str, InputSpec]
+    timing: TimingResult
+    judgement: JudgementResult
 
 
 class TranslatorBug(RuntimeError):
@@ -83,9 +98,21 @@ def differential(
     return Differential(len(generated), seed, explained, unexplained)
 
 
+def rules_file(rules: Path) -> Path:
+    """The rules file in the directory `rules`, which replay runs through Catala.
+
+    The provenance block describes the same directory, so the replay must
+    read the same file. Raises `FileNotFoundError` if it is missing.
+    """
+    file = Path(rules) / RULES_FILE
+    if not file.is_file():
+        raise FileNotFoundError(f"no {RULES_FILE} in the rules directory {rules}")
+    return file
+
+
 def build(
     ir_path: Path,
-    bounds_path: Path,
+    inputs_path: Path,
     rules: Path,
     n_random: int = 50,
     seed: int = 1,
@@ -93,10 +120,12 @@ def build(
     timeout_ms: int = 60_000,
 ) -> Report:
     # First, so that an IR that does not match the rules fails before the slow checks.
+    replay_rules = rules_file(rules)
     prov = provenance.collect(rules, ir_path)
     scope = ir.load(ir_path)
     module = translate.translate(scope)
-    bounds = bounds_mod.load(bounds_path, scope)
+    specs = bm_inputs.load(inputs_path, scope)
+    bounds = bm_inputs.bounds(specs)
     return Report(
         scope=scope.name,
         inputs=module.inputs,
@@ -106,23 +135,33 @@ def build(
         coverage=coverage.check(module, bounds, timeout_ms=timeout_ms),
         differential=differential(module, bounds, n_random, seed),
         provenance=prov,
+        specs=specs,
+        timing=strategic.timing(module, specs, rules=replay_rules, timeout_ms=timeout_ms),
+        judgement=strategic.judgement_value(
+            module, specs, point=JUDGEMENT_POINT, rules=replay_rules, timeout_ms=timeout_ms
+        ),
+    )
+
+
+def is_unknown(report: Report) -> bool:
+    """Whether any result in the report is unknown."""
+    return (
+        report.emr.status == "unknown"
+        or report.timing.status == "unknown"
+        or report.judgement.status == "unknown"
+        or any(f.status == "unknown" for f in report.coverage)
     )
 
 
 def exit_code(report: Report) -> int:
     if any(f.status == "found" for f in report.coverage) or report.differential.unexplained:
         return 1
-    if report.emr.status == "unknown" or any(f.status == "unknown" for f in report.coverage):
-        return 2
-    return 0
+    return 2 if is_unknown(report) else 0
 
 
 # Formatting
 
-def money(pence: int) -> str:
-    sign = "-" if pence < 0 else ""
-    pounds, rest = divmod(abs(pence), 100)
-    return f"{sign}£{pounds:,}.{rest:02d}"
+money = units.pounds_text
 
 
 def value(var_type: str, v: int | bool) -> str:
@@ -130,7 +169,7 @@ def value(var_type: str, v: int | bool) -> str:
         case "money":
             return money(v)
         case "date":
-            return (EPOCH + timedelta(days=v)).isoformat()
+            return units.to_date(v).isoformat()
         case "bool":
             return "yes" if v else "no"
     return str(v)
@@ -169,6 +208,123 @@ def emr_text(emr: EmrResult, inputs: list[Var], earnings_input: str, delta: int)
     )
     out.append("  Example household (earnings before the rise):")
     out += _indent(household_lines(inputs, emr.household))
+    return out
+
+
+def _controls(spec: InputSpec) -> str:
+    return f"controlled by {', '.join(spec.controlled_by)}; checked by {spec.checked_by}"
+
+
+def _result_line(label: str, status: str, amount: int | None) -> str:
+    """One result, worded from its own status.
+
+    An unknown result is never shown as an answer, or as nil. An unknown with
+    an amount is one that Z3 proved but cvc5 could not confirm: the solvers
+    keep Z3's value only then.
+    """
+    if status == "optimal":
+        return f"{label}: {money(amount)}"
+    if amount is None:
+        return (
+            f"{label}: UNKNOWN. Z3 did not prove a result in the time allowed. "
+            "That is not a result of nil."
+        )
+    return (
+        f"{label}: UNKNOWN. Z3 found {money(amount)}, but cvc5 could not confirm that "
+        "nothing better exists, so it is not known to be the best."
+    )
+
+
+def _fixed_line(specs: dict[str, InputSpec], fixed: dict[str, int | bool]) -> str:
+    if not fixed:
+        return "  Fixed by the caller: nothing; every other input is free within its bounds"
+    shown = ", ".join(f"{n} {value(specs[n].type, v)}" for n, v in fixed.items())
+    return f"  Fixed by the caller: {shown}"
+
+
+def _verification_line(verification: dict) -> str:
+    cvc5 = (
+        "cvc5 confirmed that nothing better exists for every result"
+        if verification["cvc5"] == "confirmed"
+        else "cvc5 did not confirm every result, and each UNKNOWN line says what is missing"
+    )
+    match verification["replay"]:
+        case "matched":
+            replay = "Catala's interpreter gave the same award as Z3 at every witness"
+        case "matched in part":
+            replay = (
+                "Catala's interpreter gave the same award as Z3 at the witnesses of "
+                f"{', '.join(verification['replayed'])}; the other results have no witness"
+            )
+        case _:
+            replay = "no witness was replayed through Catala"
+    return f"  Verification: {cvc5}; {replay}"
+
+
+def _witness_lines(specs: dict[str, InputSpec], w: Witness, heading: str) -> list[str]:
+    names = [n for n in specs if n in w.inputs]
+    width = max(len(n) for n in names)
+    shown = [value(specs[n].type, w.inputs[n]) for n in names]
+    wide = max(len(v) for v in shown)
+    lines = [f"{heading}, award {money(w.award)}"]
+    lines += [
+        f"  {n:<{width}}  {v:<{wide}}  {_controls(specs[n])}"
+        for n, v in zip(names, shown, strict=True)
+    ]
+    return lines
+
+
+def timing_text(result: TimingResult, specs: dict[str, InputSpec]) -> list[str]:
+    out = [f"Timing gain: splitting {TIMING_INPUT} between two assessment periods"]
+    if result.status == "unknown":
+        out.append("  UNKNOWN: at least one optimisation below is not settled")
+    out.append(
+        "  A gain is the award from a split less the award from the even split, "
+        "summed over both periods."
+    )
+    out.append(
+        _result_line(
+            "  Gain the claimant can count on (worst case over the judgement cases)",
+            result.gain_status,
+            result.gain,
+        )
+    )
+    if result.total is not None:
+        out.append(f"  Total of {TIMING_INPUT} over both periods at that gain: {money(result.total)}")
+    starts = ", ".join(units.to_date(d).isoformat() for d in result.starts)
+    out.append(f"  Periods start: {starts}")
+    out.append(_fixed_line(specs, result.fixed))
+    for case, status, gain in result.per_case:
+        out.append(_result_line(f"  Best gain with {strategic.case_label(case)}", status, gain))
+    out.append(_verification_line(result.verification))
+    if result.witnesses:
+        out.append("  Households of the gain above:")
+        for w in result.witnesses:
+            heading = f"period {w.period} ({w.kind}), {strategic.case_label(w.case)}"
+            out += _indent(_witness_lines(specs, w, heading), 4)
+    return out
+
+
+def judgement_text(result: JudgementResult, specs: dict[str, InputSpec]) -> list[str]:
+    out = [f"Value of the decision maker's finding on {result.point}"]
+    if result.status == "unknown":
+        out.append("  UNKNOWN: at least one optimisation below is not settled")
+    out.append(
+        f"  The value is the award with {result.point} yes less the award with it no, "
+        f"in the assessment period starting {units.to_date(result.start).isoformat()}."
+    )
+    out.append(_result_line("  Largest value", result.largest_status, result.largest))
+    out.append(_result_line("  Smallest value", result.smallest_status, result.smallest))
+    out.append(_fixed_line(specs, result.fixed))
+    out.append(_verification_line(result.verification))
+    for label, found in (
+        ("largest", result.largest_witnesses),
+        ("smallest", result.smallest_witnesses),
+    ):
+        if found:
+            out.append(f"  Households of the {label} value:")
+            for w in found:
+                out += _indent(_witness_lines(specs, w, strategic.case_label(w.case)), 4)
     return out
 
 
@@ -222,12 +378,18 @@ def provenance_dict(p: Provenance) -> dict:
 
 
 def to_text(r: Report) -> str:
+    head = [f"Report for scope {r.scope}"]
+    if is_unknown(r):
+        head.append("UNKNOWN: at least one result below is unknown, which is not the same as nothing found")
     sections = [
-        [f"Report for scope {r.scope}"],
+        head,
         emr_text(r.emr, r.inputs, r.earnings_input, r.delta),
+        timing_text(r.timing, r.specs),
+        judgement_text(r.judgement, r.specs),
         coverage_text(r.coverage, r.inputs),
         differential_text(r.differential, r.inputs),
         provenance_text(r.provenance),
+        [MODEL_GAPS_LINE],
     ]
     return "\n\n".join("\n".join(s) for s in sections) + "\n"
 
@@ -237,6 +399,7 @@ def to_text(r: Report) -> str:
 def emr_dict(emr: EmrResult, delta: int, earnings_input: str) -> dict:
     return {
         "status": emr.status,
+        "unknown": emr.status == "unknown",
         "rate": None if emr.rate is None else str(emr.rate),
         "delta": delta,
         "earnings_input": earnings_input,
@@ -261,12 +424,74 @@ def _plain(x):
     return x
 
 
+def _witness_dict(specs: dict[str, InputSpec], w: Witness) -> dict:
+    return {
+        "case": w.case,
+        "period": w.period,
+        "kind": w.kind,
+        "award": w.award,
+        "inputs": {
+            name: {
+                "value": w.inputs[name],
+                "type": spec.type,
+                "controlled_by": list(spec.controlled_by),
+                "checked_by": spec.checked_by,
+            }
+            for name, spec in specs.items()
+            if name in w.inputs
+        },
+    }
+
+
+def timing_dict(result: TimingResult, specs: dict[str, InputSpec]) -> dict:
+    return {
+        "query": "timing",
+        "choice": TIMING_INPUT,
+        "status": result.status,
+        "unknown": result.status == "unknown",
+        "gain": result.gain,
+        "gain_status": result.gain_status,
+        "total": result.total,
+        "starts": result.starts,
+        "fixed": result.fixed,
+        "per_case": [
+            {"case": case, "status": status, "gain": gain}
+            for case, status, gain in result.per_case
+        ],
+        "witnesses": [_witness_dict(specs, w) for w in result.witnesses],
+        "verification": result.verification,
+        "solver_versions": result.versions,
+    }
+
+
+def judgement_dict(result: JudgementResult, specs: dict[str, InputSpec]) -> dict:
+    return {
+        "query": "judgement",
+        "point": result.point,
+        "status": result.status,
+        "unknown": result.status == "unknown",
+        "largest": result.largest,
+        "largest_status": result.largest_status,
+        "smallest": result.smallest,
+        "smallest_status": result.smallest_status,
+        "start": result.start,
+        "fixed": result.fixed,
+        "largest_witnesses": [_witness_dict(specs, w) for w in result.largest_witnesses],
+        "smallest_witnesses": [_witness_dict(specs, w) for w in result.smallest_witnesses],
+        "verification": result.verification,
+        "solver_versions": result.versions,
+    }
+
+
 def to_dict(r: Report) -> dict:
     d = r.differential
     return {
         "scope": r.scope,
         "units": UNITS,
+        "unknown": is_unknown(r),
         "emr": emr_dict(r.emr, r.delta, r.earnings_input),
+        "timing": timing_dict(r.timing, r.specs),
+        "judgement": judgement_dict(r.judgement, r.specs),
         "coverage": {
             "gaps_found": any(f.status == "found" for f in r.coverage),
             "findings": [

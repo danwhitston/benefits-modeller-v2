@@ -1,20 +1,33 @@
 from datetime import date
+from pathlib import Path
 
-from bm import policyengine
+import pytest
+
+from bm import inputs, ir, policyengine
 
 EPOCH = date(1970, 1, 1)
+ROOT = Path(__file__).resolve().parent.parent
+UC_IR = ROOT / "build" / "uc.bm-ir.json"
+UC_INPUTS = ROOT / "rules" / "uc.inputs.toml"
 
 
 def days(d: date) -> int:
     return (d - EPOCH).days
 
 
-def household(start: date, earned_income: int, aged_25_or_over: bool, has_lcw: bool) -> dict:
+def household(
+    start: date,
+    earned_income: int,
+    aged_25_or_over: bool,
+    has_lcw: bool,
+    housing_costs_element: int = 0,
+) -> dict:
     return {
         "assessment_period_start": days(start),
         "earned_income": earned_income,
         "aged_25_or_over": aged_25_or_over,
         "has_lcw": has_lcw,
+        "housing_costs_element": housing_costs_element,
     }
 
 
@@ -24,6 +37,7 @@ def test_pe_mapping_known_household():
     assert policyengine.award(h) == 14_990
 
 
+@pytest.mark.slow
 def test_pe_period_pinned():
     # PolicyEngine UK works in whole years, so two dates in the same tax year
     # must give the same award. This pins how the start date becomes a period.
@@ -37,3 +51,15 @@ def test_pe_period_pinned():
     assert policyengine.award(before) == 12_514
     assert policyengine.award(after) == 14_990
 
+
+def test_pe_housing_lowers_work_allowance():
+    # An element of 500.00 is above 0, so the lower work allowance of 427.00
+    # applies: 1,000.00 - 427.00 = 573.00; 55% x 573.00 = 315.15.
+    # Maximum amount 424.90 + 500.00 = 924.90, and 924.90 - 315.15 = 609.75.
+    h = household(date(2026, 5, 1), 100_000, True, True, 50_000)
+    assert policyengine.award(h) == 60_975
+
+
+def test_mapping_covers_exactly_the_registry_inputs():
+    # A new input needs code in `policyengine.award`; this fails until it has some.
+    assert policyengine.INPUT_NAMES == set(inputs.load(UC_INPUTS, ir.load(UC_IR)))

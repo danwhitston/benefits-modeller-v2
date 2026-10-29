@@ -1,6 +1,8 @@
+import time
 from importlib.metadata import version
 
 import pytest
+import z3
 
 from bm import solvers
 
@@ -146,3 +148,166 @@ def test_disagreement_carries_both_results():
     error = solvers.SolverDisagreement(a, b)
     assert error.z3 is a and error.cvc5 is b
     assert "sat" in str(error) and "unsat" in str(error)
+
+
+BOX = ["(declare-const x Int)", "(assert (<= 0 x 7))"]
+
+
+def _cvc5_answers(monkeypatch, status):
+    """Make cvc5 answer `status` to everything; Z3 still runs for real."""
+    real = solvers.run
+
+    def run(solver, script, timeout_ms):
+        if solver == "cvc5":
+            return solvers.SolverResult(status, {"x": 8} if status == "sat" else None, "cvc5 fake")
+        return real(solver, script, timeout_ms)
+
+    monkeypatch.setattr(solvers, "run", run)
+
+
+def test_optimise_max():
+    result = solvers.optimise_and_confirm(BOX, "x", "max", 10_000)
+    assert result.status == "optimal"
+    assert result.value == 7
+    assert result.model["x"] == 7
+    assert result.confirmed is True
+    assert set(result.versions) == {"z3", "cvc5"}
+
+
+def test_optimise_min():
+    result = solvers.optimise_and_confirm(BOX, "x", "min", 10_000)
+    assert result.status == "optimal"
+    assert result.value == 0
+    assert result.confirmed is True
+
+
+def test_optimise_does_not_change_the_callers_lines():
+    lines = list(BOX)
+    solvers.optimise_and_confirm(lines, "x", "max", 10_000)
+    assert lines == BOX
+
+
+def test_optimise_objective_may_be_a_term():
+    result = solvers.optimise_and_confirm(BOX, "(- 10 x)", "max", 10_000)
+    assert result.value == 10
+    assert result.model["x"] == 0
+
+
+def test_optimise_infeasible():
+    lines = [*BOX, "(assert (> x 3))", "(assert (< x 2))"]
+    result = solvers.optimise_and_confirm(lines, "x", "max", 10_000)
+    assert result.status == "infeasible"
+    assert result.value is None and result.model is None
+    assert result.confirmed is False
+    assert set(result.versions) == {"z3", "cvc5"}
+
+
+def test_optimise_z3_unknown():
+    lines = HARD.replace("(check-sat)\n", "").strip().splitlines()
+    result = solvers.optimise_and_confirm(lines, "x", "max", 1)
+    assert result.status == "unknown"
+    assert result.value is None and result.model is None
+    assert result.confirmed is False
+    assert set(result.versions) == {"z3", "cvc5"}
+
+
+def test_optimise_disagreement(monkeypatch):
+    _cvc5_answers(monkeypatch, "sat")
+    with pytest.raises(solvers.SolverDisagreement, match="a widget"):
+        solvers.optimise_and_confirm(BOX, "x", "max", 10_000, context="a widget")
+
+
+def test_optimise_cvc5_unknown_keeps_z3(monkeypatch):
+    _cvc5_answers(monkeypatch, "unknown")
+    result = solvers.optimise_and_confirm(BOX, "x", "max", 10_000)
+    assert result.status == "unknown"
+    assert result.value == 7
+    assert result.model["x"] == 7
+    assert result.confirmed is False
+    assert result.versions["cvc5"] == "cvc5 fake"
+
+
+def _count_z3_calls(monkeypatch) -> list[int]:
+    """Count the Z3 checks that `optimise_and_confirm` makes."""
+    real = solvers.run
+    calls = [0]
+
+    def run(solver, script, timeout_ms):
+        if solver == "z3":
+            calls[0] += 1
+        return real(solver, script, timeout_ms)
+
+    monkeypatch.setattr(solvers, "run", run)
+    return calls
+
+
+@pytest.mark.parametrize(("direction", "expected"), [("max", 1_000_000), ("min", -1_000_000)])
+def test_optimise_wide_objective_takes_few_checks(monkeypatch, direction, expected):
+    # Climbing one unit at a time would take a million checks. Galloping and
+    # bisection take about two per bit of the range.
+    calls = _count_z3_calls(monkeypatch)
+    lines = ["(declare-const x Int)", "(assert (<= (- 1000000) x 1000000))"]
+    result = solvers.optimise_and_confirm(lines, "x", direction, 10_000)
+    assert result.status == "optimal"
+    assert result.value == expected and result.model["x"] == expected
+    assert calls[0] <= 2 * 21 + 2
+
+
+def test_optimise_unbounded_objective_is_unknown_and_stops(monkeypatch):
+    calls = _count_z3_calls(monkeypatch)
+    lines = ["(declare-const x Int)", "(assert (>= x 0))"]
+    started = time.monotonic()
+    result = solvers.optimise_and_confirm(lines, "x", "max", 1_000)
+    assert time.monotonic() - started < 10
+    assert result.status == "unknown"
+    assert result.value is None and result.model is None
+    assert result.confirmed is False
+    assert calls[0] > 1
+
+
+def test_optimise_z3_unknown_during_the_search_gives_no_value(monkeypatch):
+    # Z3 finds a first model, then cannot settle whether a better one exists.
+    real = solvers.run
+    seen = []
+
+    def run(solver, script, timeout_ms):
+        seen.append(solver)
+        if solver == "z3" and len(seen) > 1:
+            return solvers.SolverResult("unknown", None, "z3 fake")
+        return real(solver, script, timeout_ms)
+
+    monkeypatch.setattr(solvers, "run", run)
+    result = solvers.optimise_and_confirm(BOX, "x", "max", 10_000)
+    assert result.status == "unknown"
+    assert result.value is None and result.model is None
+    assert result.confirmed is False
+    assert "cvc5" not in seen
+
+
+def test_optimise_nonlinear_objective():
+    lines = [
+        "(declare-const x Int)",
+        "(declare-const y Int)",
+        "(assert (and (> x 0) (< x 100000) (> y 0) (< y 100000)))",
+    ]
+    result = solvers.optimise_and_confirm(lines, "(* x y)", "max", 10_000)
+    assert result.status == "optimal"
+    assert result.value == 99999 * 99999
+
+
+def test_z3_runs_in_a_fresh_context(monkeypatch):
+    # Work done earlier in the process must not change Z3's search, so each
+    # call has a context of its own, never Z3's shared main context.
+    real = z3.Solver
+    contexts = []
+
+    def solver(*args, **kwargs):
+        engine = real(*args, **kwargs)
+        contexts.append(engine.ctx)
+        return engine
+
+    monkeypatch.setattr(z3, "Solver", solver)
+    for _ in range(2):
+        assert solvers.run("z3", SAT, 10_000).model == {"a b": 5, "flag": True}
+    assert len(contexts) == 2 and contexts[0] is not contexts[1]
+    assert all(c is not z3.main_ctx() for c in contexts)

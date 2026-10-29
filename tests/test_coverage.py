@@ -6,8 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from bm import bounds as bounds_mod
-from bm import coverage, evaluate, ir, solvers, translate
+from bm import coverage, evaluate, inputs, ir, solvers, translate
 
 ROOT = Path(__file__).resolve().parent.parent
 UC_IR = ROOT / "build" / "uc.bm-ir.json"
@@ -30,13 +29,13 @@ def _module():
 
 
 def test_uc_coverage_clean():
-    bounds = bounds_mod.load(UC_BOUNDS, _scope())
+    bounds = inputs.bounds(inputs.load(UC_BOUNDS, _scope()))
     assert coverage.check(_module(), bounds) == []
 
 
 def test_uc_coverage_finds_date_gap():
     module = _module()
-    bounds = bounds_mod.load(WIDE_DATES, _scope())
+    bounds = inputs.bounds(inputs.load(WIDE_DATES, _scope()))
     findings = coverage.check(module, bounds)
     empty = [f for f in findings if f.kind == "empty"]
     assert empty
@@ -51,7 +50,7 @@ def test_uc_coverage_finds_date_gap():
 
 
 def test_coverage_timeout_is_unknown():
-    bounds = bounds_mod.load(UC_BOUNDS, _scope())
+    bounds = inputs.bounds(inputs.load(UC_BOUNDS, _scope()))
     findings = coverage.check(_module(), bounds, timeout_ms=1)
     # A millisecond may or may not be enough; whatever is reported is unknown
     # with no example, never a household that was not found.
@@ -67,6 +66,6 @@ def test_coverage_cvc5_disagreement(monkeypatch):
         return real_run(solver, script, timeout_ms)
 
     monkeypatch.setattr(solvers, "run", run)
-    bounds = bounds_mod.load(UC_BOUNDS, _scope())
+    bounds = inputs.bounds(inputs.load(UC_BOUNDS, _scope()))
     with pytest.raises(solvers.SolverDisagreement):
         coverage.check(_module(), bounds)

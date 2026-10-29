@@ -14,9 +14,10 @@ from dataclasses import dataclass
 from typing import Literal
 
 from bm import solvers
-from bm.bounds import Bound
+from bm.household import Script
+from bm.inputs import Bound
 from bm.ir import Pos
-from bm.translate import SORTS, SmtModule, literal, quote
+from bm.translate import SmtModule
 
 
 @dataclass(frozen=True)
@@ -29,21 +30,6 @@ class CoverageFinding:
     example: dict[str, int | bool] | None
 
 
-def declarations(module: SmtModule, bounds: dict[str, Bound]) -> list[str]:
-    """SMT-LIB lines declaring each input as a constant, within its bounds."""
-    sorts = {v.name: SORTS[v.type] for v in module.inputs}
-    if unknown := sorted(set(bounds) - set(sorts)):
-        raise ValueError(f"bounds for unknown inputs {unknown}")
-    lines = [f"(declare-const {quote(name)} {sort})" for name, sort in sorts.items()]
-    for name, bound in bounds.items():
-        if sorts[name] != "Int":
-            raise ValueError(f"{name} is {sorts[name]}, which takes no bound")
-        lines.append(
-            f"(assert (<= {literal('Int', bound.min)} {quote(name)} {literal('Int', bound.max)}))"
-        )
-    return lines
-
-
 def check(
     module: SmtModule, bounds: dict[str, Bound], timeout_ms: int = 60_000
 ) -> list[CoverageFinding]:
@@ -53,18 +39,18 @@ def check(
     finds a household where it does. If cvc5 cannot settle it in time, the
     finding is `unknown`.
     """
-    inputs = {v.name for v in module.inputs}
-    base = [module.text, *declarations(module, bounds)]
+    base = Script(module, bounds)
+    household = base.instance(defined=False)
     findings = []
-    for ob in module.obligations:
-        script = "\n".join([*base, f"(assert {ob.formula})", "(check-sat)"]) + "\n"
+    for i, ob in enumerate(module.obligations):
+        script = base.text(f"(assert {household.obligation(i)})")
 
         def finding(status, example=None):
             return CoverageFinding(ob.kind, ob.definition, ob.pos, status, example)
 
         z3_result = solvers.run("z3", script, timeout_ms)
         if z3_result.status == "sat":
-            example = {k: v for k, v in z3_result.model.items() if k in inputs}
+            example = household.household(z3_result.model)
             findings.append(finding("found", example))
             continue
         if z3_result.status == "unknown":

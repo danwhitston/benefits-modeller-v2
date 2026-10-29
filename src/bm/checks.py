@@ -107,13 +107,7 @@ def run(
                 household,
                 "; ".join(f"{n}: Catala {catala.get(n)}, Z3 {z3[n]}" for n in differ),
             )
-        inputs = {
-            "assessment_period_start": int(household["assessment_period_start"]),
-            "earned_income": int(household["earned_income"]),
-            "aged_25_or_over": bool(household["aged_25_or_over"]),
-            "has_lcw": bool(household["has_lcw"]),
-        }
-        pe = policyengine.award(inputs)
+        pe = policyengine.award({name: household[name] for name in policyengine.INPUT_NAMES})
         if pe != catala["award"]:
             mismatches.append(
                 Mismatch(dict(household), int(catala["award"]), int(z3["award"]), pe, catala)

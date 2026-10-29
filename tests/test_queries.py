@@ -6,9 +6,8 @@ from pathlib import Path
 
 import pytest
 
-from bm import bounds as bounds_mod
-from bm import evaluate, ir, queries, solvers, translate
-from bm.bounds import Bound
+from bm import evaluate, inputs, ir, queries, solvers, translate
+from bm.inputs import Bound
 from bm.ir import Pos, Var
 from bm.translate import Obligation, SmtModule
 
@@ -20,7 +19,7 @@ UC_BOUNDS = ROOT / "rules" / "uc.inputs.toml"
 @cache
 def _loaded():
     scope = ir.load(UC_IR)
-    return translate.translate(scope), bounds_mod.load(UC_BOUNDS, scope)
+    return translate.translate(scope), inputs.bounds(inputs.load(UC_BOUNDS, scope))
 
 
 def check_household(result: queries.EmrResult, delta: int) -> None:
@@ -55,12 +54,18 @@ def test_emr_peak_is_taper():
 
 def test_emr_zero_within_work_allowance():
     module, bounds = _loaded()
+    # With no housing costs element the higher work allowance of 710.00 applies.
+    # An element above 0 lowers it to 427.00, and the range would reach the taper.
     result = queries.emr(
-        module, bounds, fixed={"has_lcw": True}, earnings_range=(0, 71_000 - 100)
+        module,
+        bounds,
+        fixed={"has_lcw": True, "housing_costs_element": 0},
+        earnings_range=(0, 71_000 - 100),
     )
     assert result.status == "found"
     assert result.rate == 0
     assert result.household["has_lcw"] is True
+    assert result.household["housing_costs_element"] == 0
     assert 0 <= result.household["earned_income"] <= 71_000 - 200
     check_household(result, 100)
 
@@ -95,7 +100,7 @@ WIDE_DATES = ROOT / "tests" / "fixtures" / "uc_wide_dates.inputs.toml"
 
 def test_emr_excludes_households_catala_rejects():
     module, _ = _loaded()
-    wide = bounds_mod.load(WIDE_DATES, ir.load(UC_IR))
+    wide = inputs.bounds(inputs.load(WIDE_DATES, ir.load(UC_IR)))
     # Before 6 April 2026 no rate applies, so Catala stops with an error and
     # no household is left to compare.
     with pytest.raises(queries.NoHousehold):

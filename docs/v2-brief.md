@@ -122,7 +122,7 @@ The repository is public. Methods, models and findings about classes of input an
 
 ## Open questions for design
 
-Questions 1, 2, 3 and 7, and parts of 8 and 9, are answered for milestone 1 in the [walking skeleton design](superpowers/specs/2026-10-29-walking-skeleton-design.md) (29 October 2026). Question 6 is answered by the [quantifier tractability spike](spike-quantifier-tractability.md) (29 October 2026): at the first version's size (two periods) both forms are trivial for Z3 and cvc5, quantified queries degrade sharply with more free choices, and milestone 2 should expand judgement points into finite cases by default. Questions 4 and 5 stay open until milestone 2.
+Questions 1, 2, 3 and 7, and parts of 8 and 9, are answered for milestone 1 in the [walking skeleton design](superpowers/specs/2026-10-29-walking-skeleton-design.md) (29 October 2026). Question 6 is answered by the [quantifier tractability spike](spike-quantifier-tractability.md) (29 October 2026): at the first version's size (two periods) both forms are trivial for Z3 and cvc5, quantified queries degrade sharply with more free choices, and milestone 2 should expand judgement points into finite cases by default. Questions 4 and 5 are answered for milestone 2 under [Milestones](#milestones) (29 October 2026).
 
 1. Which artefacts come first: the Catala rules, or a minimal SMT translator for a handful of hand-written rules?
 2. Translate from which Catala intermediate representation, and how stable is it between releases?
@@ -133,3 +133,58 @@ Questions 1, 2, 3 and 7, and parts of 8 and 9, are answered for milestone 1 in t
 7. Which PolicyEngine engine to test against, and how to map its variables onto ours?
 8. How to generate test households: random, solver-generated near boundaries, or drawn from FRS records?
 9. How should findings be presented: a command-line report, notebooks, or pages suitable for writing up?
+
+## Milestones
+
+Each milestone is a thin slice through every layer, widened from the one before. Items that milestone 1's per-task and whole-branch reviews deferred are placed below under the milestone or pull request expected to deal with them, so that none is lost. Plans for later work are candidates, not commitments.
+
+### Milestone 1: walking skeleton (done)
+
+Merged on 29 October 2026. [Design](superpowers/specs/2026-10-29-walking-skeleton-design.md), [plan](superpowers/plans/2026-10-29-walking-skeleton.md).
+
+### Milestone 2: the first strategic query (built, pending merge)
+
+Scope agreed on 29 October 2026. [Design](superpowers/specs/2026-10-29-first-strategic-query-design.md), [plan](superpowers/plans/2026-10-29-first-strategic-query.md).
+
+- **Built.** The refactors below, then input labels in `rules/uc.inputs.toml`, a housing costs element with the lower work allowance, judgement points expanded into cases, a timing query and a judgement value query in `bm.strategic` (Z3 optimises, cvc5 confirms, Catala's interpreter replays the example), their commands and report, and a differential check of the housing costs element against PolicyEngine UK. What the model leaves out, and the conditions on each finding, are in [model gaps](model-gaps.md).
+- **Findings** (single claimant, rules as modelled, no specialist review; conditions in [model gaps](model-gaps.md#strategic-findings-and-their-conditions)):
+  - Timing: while every award stays above nil, moving pay between two assessment periods gains at most 1p in the worst case over the limited capability for work (LCW) finding, and also 1p in each case. Z3 found it, cvc5 confirmed that no larger gain exists, and Catala's interpreter replayed the witness. One witness found was a claimant under 25 with a housing costs element; which household Z3 returns depends on its search, so another run may give a different one.
+  - LCW value: up to 390.50 pounds a month with no housing costs element (55% of 710.00 pounds), and up to 234.85 pounds with an element above zero (55% of 427.00 pounds), where both awards stay above nil. Its smallest value is 0 pounds.
+  - The housing costs element is bounded at 804.00 pounds a month so that no modelled household reaches the benefit cap (regulation 80A), which is not modelled.
+- **Assumptions.** The five assumptions in the design were checked against DWP's *Advice for Decision Making* on 29 October 2026, and the outcomes are recorded under each in the design. None was contradicted, but assumption 1 is only partly supported: a nil award because of earnings ends the award, but regulation 54A blocks or reduces a nil-period gain only where earnings exceed the surplus earnings threshold. The guidance does not decide assumptions 2 (an element reduced to nil) or 5 (the rounding stage), and all five remain questions for an outside reviewer. The checks also corrected the surplus earnings threshold (below) and added two qualifications to [model gaps](model-gaps.md): the in-work gateway, which ties the LCW finding to earnings, and regulation 60 on notional earnings, which treats earnings the claimant has deprived themselves of for the purpose of securing or increasing universal credit as possessed. Whether deferring pay counts is the project's reading, for specialist review.
+
+- **Query.** For a single claimant across two assessment periods: how much can the claimant gain by choosing when earnings fall between the two periods, whatever the decision maker finds on limited capability for work? And what is that finding worth on its own? The claimant's choice is how a fixed total of earnings is split between the periods. Splits are limited to those where the award stays above nil in both periods, because the end of an award after a nil period and the reclaim are not modelled (see [model gaps](model-gaps.md)). Regulation 54A does not block or reduce a gain through a nil period below the surplus earnings threshold, which is the nil UC threshold plus 2,500 pounds for a claim in respect of a period beginning on or before 31 March 2027 (the end of the temporary de minimis period as currently extended) and plus 300 pounds for a later period unless it is extended again (S.I. 2015/345 regulation 5, and the Secretary of State's [determination](https://www.gov.uk/government/publications/secretary-of-state-determination-under-regulation-5-of-the-universal-credit-surpluses-and-self-employed-losses-digital-service-amendment-regulatio--2/secretary-of-state-determination-under-regulation-5-of-the-universal-credit-surpluses-and-self-employed-losses-digital-service-amendment-regulatio), made 20 January 2026 and published on gov.uk 31 March 2026, checked 29 October 2026). That the 2,500 pounds covers a period beginning on 31 March 2027 itself is the project's reading of the determination's "will end on 31st March 2027" with regulation 5, which applies the higher threshold to a period beginning before the end of the temporary de minimis period; it is for specialist review. Regulation 60 on notional earnings is a separate possible limit. Within the limit, any gain comes from rounding.
+- **Rules.** A housing costs element, taken as one monthly input, which adds to the maximum amount and brings in the lower work allowance. The Catala scope still covers one assessment period. The query calls it once for each period. A scope that covers several periods waits until a rule crosses periods.
+- **Input labels (open question 4).** In `rules/uc.inputs.toml`, next to each input's bounds: who controls the input, and how it is checked.
+- **Judgement points (open question 5).** An input labelled as controlled by a decision maker is a judgement point. It is a Boolean or a small enumeration, and queries expand it into its cases, as the [quantifier spike](spike-quantifier-tractability.md) recommends: `forall` is kept only as a cross-check on small instances, and the number of judgement points and free choices in a query is capped. Probabilities are left out for now.
+- **Refactors first.** These are needed before adding inputs:
+  - A shared units module. `EPOCH` is defined in six modules, and pounds and pence are converted in four different ways (`bounds`, `catala_run`, `policyengine`, `report`).
+  - A single builder for a valid household. Declaring the input constants, bounding them and asserting that no obligation holds is written out four times (`coverage`, `queries.emr`, `households.last_penny_earnings`, `evaluate`). The "Z3 optimises, cvc5 confirms" pattern appears twice, with different handling of *unknown*.
+  - Input names read from `uc.inputs.toml`. They are currently hard-coded in `households`, `checks.run`, `policyengine` and `cli`.
+  - Document the `.defined` flag on `SmtModule` and `Obligation`. It is true at `error_on_empty` sites even where Catala raises an error, so every query must assert that no obligation holds.
+- **Translator.** cvc5 rejects a unary `(+ x)`, so a sum with one term must be special-cased. The translator never writes a unary `+`, because Catala's additions are binary. The special case lives in `bm.household.smt_sum`, where the query code builds sums.
+- **Report and CLI.** A top-level indicator in the JSON report that a result was *unknown*, and CLI tests for exit status 1 when the solvers disagree and for exit statuses 1 and 2 from coverage.
+- **PolicyEngine UK.** Map the housing costs element, so that differential tests cover the new rules. PolicyEngine works out the element from rent and tenure. The mapping does not use those: it sets PolicyEngine's `uc_housing_costs_element` directly to our input, as it sets earned income (see `bm.policyengine`).
+
+### Tidy-up between milestones
+
+A small pull request, separate from any milestone:
+
+- `code_commit` in the provenance record does not say whether the working tree was dirty.
+- Tests that use `timeout_ms=1` could fail intermittently on a fast runner.
+- The mismatch count in the [mismatch log](mismatches.md) is tied to one random draw and goes stale if the draw changes.
+- `ir.py` accepts a `bm_ir_version` of `false` or `0.0`.
+- The check that the rules are newer than the IR also reacts to stray editor files in `rules/`.
+- The mismatch log describes the rounding reading as one "the project owner confirmed". It should say the reading was adopted by the project, pending review by a benefits specialist, because the project has no specialist sign-off (see [model gaps](model-gaps.md)).
+
+### Candidates for later milestones
+
+Gaps in the model, and how each limits findings, are recorded in [model gaps](model-gaps.md). Remediation is planned from there.
+
+- **The rounding stage.** The stage at which regulation 6 rounds is an open question with three readings on record ([mismatch log](mismatches.md), entry 1). A query could make the rounding stage a parameter and have the solver bound how far the readings can disagree.
+- **Rules that cross assessment periods,** such as surplus earnings and an award ending after a nil period (regulation 54A). Until these are modelled, timing queries are limited to periods where the award stays above nil. Regulation 54A reduces such a gain only above the surplus earnings threshold (see the milestone 2 entry), and regulation 60 is a separate possible limit, so the reason for the limit is that the end of the award and the reclaim cannot be valued, not that the law blocks the gain. These rules need a Catala scope covering several periods, and so calls to sub-scopes in the exporter and translator.
+- **Other strategic queries considered for milestone 2:** when pay falls, with the couple finding as the judgement point (needs joint claims, and a comparison of one joint claim with two single claims); and when self-employed receipts fall, with the "gainful self-employment" finding as the judgement point (needs the minimum income floor and the rules on self-employed earnings).
+- **The rest of the first version's rules:** income tax and National Insurance, the benefit cap and its earnings exemption, children, couples, and a fuller housing calculation (weekly rent, under-occupancy, the Local Housing Allowance).
+- **Translator gaps that this later content will reach:**
+  - Decimal rates with no terminating decimal form (for example 52/12, for converting weekly amounts to monthly) are written as `(/ a b)`, which Z3's linearity check rejects.
+  - A zero divisor in an unreachable division is refused, and Catala's `DivisionByZero` is not modelled as an obligation.

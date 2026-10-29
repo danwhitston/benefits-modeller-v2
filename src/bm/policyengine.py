@@ -30,10 +30,16 @@ unless a path is given; "parameters" are under `parameters/gov/dwp/universal_cre
   `work_allowance/is_uc_work_allowance_eligible.py` reads it for the work
   allowance. The disability elements stay at zero, as they should: this
   variable is not the work-related-activity one.
-* No housing costs: nothing is set. `uc_housing_costs_element`
-  (`housing_costs_element/uc_housing_costs_element.py`) is 0 for a household
-  with no rent, so `work_allowance/uc_work_allowance.py` takes the higher
-  `without_housing` amount.
+* `housing_costs_element`: benefit unit variable `uc_housing_costs_element`
+  (`housing_costs_element/uc_housing_costs_element.py`), given as an input
+  although it has a formula (from tenure, rent, the Local Housing Allowance
+  cap and non-dependant deductions), as `uc_individual_earned_income_before_mif`
+  is. Our input is the element already worked out, so it is set directly, to
+  12 times the monthly element in pounds. `work_allowance/uc_work_allowance.py`
+  takes the `with_housing` amount when that element is above 0 and the
+  `without_housing` one otherwise, which is the reading in our rules. The
+  element is also a term of `uc_maximum_amount` (`uc_maximum_amount.py`), as in
+  our rules. Files read on 29 October 2026 from policyengine-uk 2.164.2.
 * Single adult, no children: one person, in one benefit unit, in one
   household, with no child. `is_uc_single_or_joint_claimant` therefore
   gives a single claimant.
@@ -60,8 +66,9 @@ contains the assessment period start (the year before when the start is before
 Monthly figure. PolicyEngine annualises its monthly parameters by multiplying by
 12 (`MONTHS_IN_YEAR`) in `standard_allowance/uc_standard_allowance.py` and
 `work_allowance/uc_work_allowance.py`. We therefore give it 12 times the monthly
-earned income and divide the annual award it returns by 12. The reduction rate
-is a rate, so it is not scaled.
+earned income and 12 times the monthly housing costs element, and divide the
+annual award it returns by 12. The reduction rate is a rate, so it is not
+scaled.
 
 Parameters for 2026/27, as PolicyEngine holds them:
 
@@ -92,19 +99,26 @@ of 710.10 pounds with limited capability for work. Such a household is logged
 in `docs/mismatches.md` when the differential check finds it.
 """
 
-from datetime import date, timedelta
+from datetime import date
 from decimal import ROUND_HALF_EVEN, ROUND_HALF_UP, Decimal
 
 from policyengine_uk import Simulation
 
-EPOCH = date(1970, 1, 1)
+from bm import units
+
 MONTHS_IN_YEAR = 12
 # Every amount at a 55% taper is a multiple of 1/20 of a penny.
 GRID = 20
 # How far the float32 result may sit from that grid, in pence, before we refuse it.
 GRID_TOLERANCE = Decimal("0.02")
 
-INPUT_NAMES = {"assessment_period_start", "earned_income", "aged_25_or_over", "has_lcw"}
+INPUT_NAMES = {
+    "assessment_period_start",
+    "earned_income",
+    "aged_25_or_over",
+    "has_lcw",
+    "housing_costs_element",
+}
 
 
 def tax_year(start: date) -> int:
@@ -125,23 +139,24 @@ def _to_pence(annual_pounds: float) -> int:
 
 
 def _pounds(pence: int) -> float:
-    """Pounds from whole pence. PolicyEngine takes floats; `Decimal` keeps the division exact."""
-    return float(Decimal(pence) / 100)
+    """Pounds from whole pence. PolicyEngine takes floats; the division is exact first."""
+    return float(units.to_pounds(pence))
 
 
 def award(inputs: dict[str, int | bool]) -> int:
     """The monthly Universal Credit award in pence, as PolicyEngine UK computes it."""
     if set(inputs) != INPUT_NAMES:
         raise ValueError(f"expected exactly {sorted(INPUT_NAMES)}, got {sorted(inputs)}")
-    for name in ("assessment_period_start", "earned_income"):
+    for name in ("assessment_period_start", "earned_income", "housing_costs_element"):
         if type(inputs[name]) is not int:
             raise TypeError(f"{name} must be an int, got {inputs[name]!r}")
     for name in ("aged_25_or_over", "has_lcw"):
         if type(inputs[name]) is not bool:
             raise TypeError(f"{name} must be a bool, got {inputs[name]!r}")
-    start = EPOCH + timedelta(days=inputs["assessment_period_start"])
+    start = units.to_date(inputs["assessment_period_start"])
     period = str(tax_year(start))
     annual_earned_income = _pounds(inputs["earned_income"] * MONTHS_IN_YEAR)
+    annual_housing = _pounds(inputs["housing_costs_element"] * MONTHS_IN_YEAR)
     person = {
         "age": {period: 25 if inputs["aged_25_or_over"] else 24},
         "uc_limited_capability_for_work": {period: bool(inputs["has_lcw"])},
@@ -149,7 +164,13 @@ def award(inputs: dict[str, int | bool]) -> int:
     }
     situation = {
         "people": {"claimant": person},
-        "benunits": {"benunit": {"members": ["claimant"], "would_claim_uc": {period: True}}},
+        "benunits": {
+            "benunit": {
+                "members": ["claimant"],
+                "would_claim_uc": {period: True},
+                "uc_housing_costs_element": {period: annual_housing},
+            }
+        },
         "households": {"household": {"members": ["claimant"]}},
     }
     annual = Simulation(situation=situation).calculate("universal_credit", period)

@@ -26,13 +26,14 @@ supported yet and raises `ValueError`.
 import json
 import re
 import subprocess
-from datetime import date, timedelta
+from datetime import date
 from decimal import Decimal
 from functools import cache
 from pathlib import Path
 
+from bm import units
+
 ROOT = Path(__file__).resolve().parents[2]
-EPOCH = date(1970, 1, 1)
 _PENNIES = re.compile(r"-?[0-9]+\.[0-9]{2}")
 _DATE = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}")
 
@@ -82,11 +83,9 @@ def _to_json(kind: str, value: int | bool) -> object:
         case "integer" if isinstance(value, int) and not isinstance(value, bool):
             return value
         case "money" if isinstance(value, int) and not isinstance(value, bool):
-            sign = "-" if value < 0 else ""
-            pounds, pence = divmod(abs(value), 100)
-            return f"{sign}{pounds}.{pence:02d}"
+            return str(units.to_pounds(value))
         case "date" if isinstance(value, int) and not isinstance(value, bool):
-            return (EPOCH + timedelta(days=value)).isoformat()
+            return units.to_date(value).isoformat()
     raise ValueError(f"cannot give {value!r} to Catala as {kind}")
 
 
@@ -97,9 +96,9 @@ def _from_json(kind: str, value: object) -> int | bool:
         case "integer", int() if not isinstance(value, bool):
             return value
         case "money", str() if _PENNIES.fullmatch(value):
-            return int(Decimal(value) * 100)
+            return units.pence(value)
         case "date", str() if _DATE.fullmatch(value):
-            return (date.fromisoformat(value) - EPOCH).days
+            return units.days(date.fromisoformat(value))
     raise ValueError(f"unexpected Catala output for a {kind}: {value!r}")
 
 

@@ -8,8 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from bm import bounds as bounds_mod
-from bm import catala_run, checks, evaluate, households, ir, translate
+from bm import catala_run, checks, evaluate, households, inputs, ir, translate
 
 ROOT = Path(__file__).resolve().parent.parent
 UC_IR = ROOT / "build" / "uc.bm-ir.json"
@@ -21,19 +20,22 @@ EPOCH = date(1970, 1, 1)
 @cache
 def _loaded():
     scope = ir.load(UC_IR)
-    return translate.translate(scope), bounds_mod.load(UC_BOUNDS, scope)
+    return translate.translate(scope), inputs.bounds(inputs.load(UC_BOUNDS, scope))
 
 
-def household(start: date, earned: int, aged_25: bool, lcw: bool) -> dict[str, int | bool]:
+def household(
+    start: date, earned: int, aged_25: bool, lcw: bool, housing: int = 0
+) -> dict[str, int | bool]:
     return {
         "assessment_period_start": (start - EPOCH).days,
         "earned_income": earned,
         "aged_25_or_over": aged_25,
         "has_lcw": lcw,
+        "housing_costs_element": housing,
     }
 
 
-def _catala_test_rows() -> list[tuple[date, int, bool, bool]]:
+def _catala_test_rows() -> list[tuple[date, int, bool, bool, int]]:
     """The inputs of each test scope in rules/uc_tests.catala_en, in file order."""
     rows = []
     for block in re.findall(r"output of Uc\.UniversalCredit with \{(.*?)\}", UC_TESTS.read_text(), re.S):
@@ -44,6 +46,7 @@ def _catala_test_rows() -> list[tuple[date, int, bool, bool]]:
                 int(Decimal(fields["earned_income"].lstrip("$").replace(",", "")) * 100),
                 fields["aged_25_or_over"] == "true",
                 fields["has_lcw"] == "true",
+                int(Decimal(fields["housing_costs_element"].lstrip("$").replace(",", "")) * 100),
             )
         )
     return rows
@@ -51,7 +54,7 @@ def _catala_test_rows() -> list[tuple[date, int, bool, bool]]:
 
 def test_table_rows_match_catala_tests():
     rows = _catala_test_rows()
-    assert len(rows) == 9
+    assert len(rows) == 14
     assert [(households.TABLE_START, *r) for r in households.TABLE_ROWS] == rows
 
 
@@ -68,36 +71,92 @@ LAST_PENNY = {
     (False, False): 61_560,
     (False, True): 132_560,
 }
+# With a housing costs element of 500.00 the maximum amount rises by 50,000
+# pence and the work allowance with LCW falls to 427.00:
+# - 25 or over: maximum 924.90, so the deduction must reach 924.90, which needs
+#   55% x 1,681.63 = 924.8965 -> 924.90 (55% x 1,681.62 = 924.891 -> 924.89).
+#   The earnings are that plus the allowance: 1,681.63 + 427.00 with LCW.
+# - under 25: maximum 838.58, which needs 55% x 1,524.69 = 838.5795 -> 838.58
+#   (55% x 1,524.68 = 838.574 -> 838.57); 1,524.69 + 427.00 with LCW.
+LAST_PENNY_HOUSING = 50_000
+LAST_PENNY_WITH_HOUSING = {
+    (True, True): 42_700 + 168_163,
+    (True, False): 168_163,
+    (False, False): 152_469,
+    (False, True): 42_700 + 152_469,
+}
 
 
-@pytest.mark.parametrize(("aged_25", "lcw"), list(LAST_PENNY))
-def test_last_penny_earnings(aged_25, lcw):
+@pytest.mark.parametrize(("aged_25", "lcw", "housing"), [
+    (*key, 0) for key in LAST_PENNY
+] + [(*key, LAST_PENNY_HOUSING) for key in LAST_PENNY_WITH_HOUSING])
+def test_last_penny_earnings(aged_25, lcw, housing):
     module, bounds = _loaded()
-    found = households.last_penny_earnings(module, bounds, aged_25, lcw)
+    expected = (LAST_PENNY if housing == 0 else LAST_PENNY_WITH_HOUSING)[(aged_25, lcw)]
+    found = households.last_penny_earnings(
+        module, bounds, aged_25, lcw, housing_costs_element=housing
+    )
     assert type(found) is int
-    assert found == LAST_PENNY[(aged_25, lcw)]
-    at = household(households.TABLE_START, found, aged_25, lcw)
-    below = household(households.TABLE_START, found - 1, aged_25, lcw)
+    assert found == expected
+    at = household(households.TABLE_START, found, aged_25, lcw, housing)
+    below = household(households.TABLE_START, found - 1, aged_25, lcw, housing)
     assert evaluate.outputs(module, at)["award"] == 0
     assert evaluate.outputs(module, below)["award"] == 1
+
+
+def test_generate_covers_housing():
+    _, bounds = _loaded()
+    generated = households.generate(bounds, n_random=50, seed=1)
+    seen = {tuple(sorted(h.items())) for h in generated}
+
+    def has(earned, aged_25, lcw, housing):
+        h = household(households.TABLE_START, earned, aged_25, lcw, housing)
+        return tuple(sorted(h.items())) in seen
+
+    # Bullet 1: element values 0 and 1.
+    assert {0, 1} <= {h["housing_costs_element"] for h in generated}
+    # Bullet 2: with LCW and an element above 0, earnings at the lower work
+    # allowance (427.00) and 1p either side, for both age bands.
+    for aged_25 in (True, False):
+        for earned in (42_699, 42_700, 42_701):
+            assert has(earned, aged_25, True, 50_000)
+        # The 1p element at earnings 0 with LCW.
+        assert has(0, aged_25, True, 1)
+        # Without LCW there is no work allowance, element or not.
+        assert has(0, aged_25, False, 50_000) and has(1, aged_25, False, 50_000)
+        # The smallest earnings with an award of 0, and 1p less, with the element.
+        for lcw in (True, False):
+            zero = LAST_PENNY_WITH_HOUSING[(aged_25, lcw)]
+            assert has(zero, aged_25, lcw, 50_000) and has(zero - 1, aged_25, lcw, 50_000)
+    # Bullet 3: random households with a zero and with a positive element.
+    random_part = generated[-50:]
+    assert any(h["housing_costs_element"] == 0 for h in random_part)
+    assert any(h["housing_costs_element"] > 0 for h in random_part)
 
 
 def test_generate_composition():
     module, bounds = _loaded()
     generated = households.generate(bounds, n_random=50, seed=1)
-    keys = {"assessment_period_start", "earned_income", "aged_25_or_over", "has_lcw"}
+    keys = {
+        "assessment_period_start",
+        "earned_income",
+        "aged_25_or_over",
+        "has_lcw",
+        "housing_costs_element",
+    }
     seen = set()
     for h in generated:
         assert set(h) == keys
         assert type(h["assessment_period_start"]) is int and type(h["earned_income"]) is int
         assert type(h["aged_25_or_over"]) is bool and type(h["has_lcw"]) is bool
+        assert type(h["housing_costs_element"]) is int
         for name, bound in bounds.items():
             assert bound.min <= h[name] <= bound.max
         seen.add(tuple(sorted(h.items())))
     assert len(seen) == len(generated), "households are not repeated"
 
-    def has(start, earned, aged_25, lcw):
-        return tuple(sorted(household(start, earned, aged_25, lcw).items())) in seen
+    def has(start, earned, aged_25, lcw, housing=0):
+        return tuple(sorted(household(start, earned, aged_25, lcw, housing).items())) in seen
 
     for row in _catala_test_rows():
         assert has(*row)
@@ -110,7 +169,15 @@ def test_generate_composition():
                 assert has(households.TABLE_START, e, aged_25, lcw)
     random_part = generated[-50:]
     for h in random_part:
-        top = LAST_PENNY[(h["aged_25_or_over"], h["has_lcw"])] + households.RANDOM_MARGIN
+        module, bounds = _loaded()
+        zero = households.last_penny_earnings(
+            module,
+            bounds,
+            h["aged_25_or_over"],
+            h["has_lcw"],
+            housing_costs_element=h["housing_costs_element"],
+        )
+        top = zero + households.RANDOM_MARGIN
         assert h["earned_income"] <= top
     # Most random households reach the taper; the margin keeps some past it.
     awards = [evaluate.outputs(module, h)["award"] for h in random_part]
@@ -126,6 +193,7 @@ HALF_PENNY_OUTPUTS = {
     "standard_allowance": 42_490,
     "work_allowance": 71_000,
     "earnings_deduction": 6,
+    "maximum_amount": 42_490,
     "award": 42_484,
 }
 
@@ -221,6 +289,7 @@ def test_run_raises_when_rules_give_no_value():
         checks.run([early])
 
 
+@pytest.mark.slow
 def test_checks_exact_match():
     _, bounds = _loaded()
     mismatches = checks.run(households.generate(bounds, n_random=50, seed=1))

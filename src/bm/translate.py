@@ -32,11 +32,10 @@ from datetime import date
 from fractions import Fraction
 from typing import Literal
 
-from bm import ir
+from bm import ir, units
 from bm.ir import Pos, Var
 
 SORTS = {"money": "Int", "integer": "Int", "date": "Int", "decimal": "Real", "bool": "Bool"}
-EPOCH = date(1970, 1, 1)
 BM_ROUND = (
     "(define-fun bm_round ((q Real)) Int"
     " (ite (>= q 0.0) (to_int (+ q 0.5)) (- (to_int (+ (- q) 0.5)))))"
@@ -60,6 +59,16 @@ class NonlinearTerm(TranslateError):
 
 @dataclass(frozen=True)
 class Obligation:
+    """A place where Catala can stop with an error.
+
+    `formula` is a Bool term over the scope's inputs, as the quoted constants
+    `|<input>|`, that holds exactly where the error happens. A definition's
+    `.defined` function does not rule this out: at an `error_on_empty` site it
+    is true even where Catala raises the error. So every query must assert
+    that no obligation holds at its households, which
+    `bm.household.Script.instance(defined=True)` does.
+    """
+
     kind: Literal["empty", "conflict"]
     definition: str
     pos: Pos
@@ -68,6 +77,16 @@ class Obligation:
 
 @dataclass(frozen=True)
 class SmtModule:
+    """A translated scope.
+
+    `text` defines `|<name>|` and `|<name>.defined|` for each definition, as
+    functions of the inputs in order. `.defined` is true at `error_on_empty`
+    sites even where Catala raises an error there, so it does not say that
+    Catala returns a value. That holds only where no obligation holds, and
+    every query must assert it, which `bm.household.Script.instance(defined=True)`
+    does.
+    """
+
     text: str
     inputs: list[Var]
     functions: dict[str, str]
@@ -248,7 +267,7 @@ class _Translator:
         match e:
             case ir.Lit(type=t, value=v):
                 if isinstance(v, date):
-                    v = (v - EPOCH).days
+                    v = units.days(v)
                 return _Const(SORTS[t], v), TRUE
             case ir.VarRef(name=name):
                 if name in self.inputs:

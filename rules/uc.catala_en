@@ -3,19 +3,21 @@
 # Universal Credit: skeleton rules for 2026/27
 
 This file holds a thin slice of Universal Credit for a single claimant: the
-standard allowance, the work allowance and the earnings deduction, and the
-award that follows from them. It is written for the walking skeleton of this
-project and models only what is needed to exercise the pipeline.
+standard allowance, the housing costs element, the work allowance and the
+earnings deduction, and the award that follows from them. It models only what
+is needed to exercise the pipeline and the queries built on it.
 
 Simplifications, stated so that nobody reads more into the rules than is there:
 
 * Only single claimants are modelled.
 * The work allowance is applied when the claimant has limited capability for
   work (`has_lcw`). Responsibility for a child is not modelled.
-* The higher work allowance is used throughout. The lower one, which applies
-  when the award includes a housing costs element, is not modelled.
+* The housing costs element is an input, taken as already worked out. Rent,
+  the Local Housing Allowance cap, the under-occupancy deduction, housing cost
+  contributions and the other steps of regulation 26 and Schedule 4 are not
+  modelled. See `docs/model-gaps.md`.
 * The LCWRA element, the child element and every other element are left out.
-  The maximum amount is the standard allowance alone.
+  The maximum amount is the standard allowance plus the housing costs element.
 * Unearned income is not modelled.
 * `earned_income` is employed earnings as regulation 55 defines them, not
   gross pay: earnings after deducting income tax, primary Class 1 National
@@ -40,10 +42,12 @@ declaration scope UniversalCredit:
   input earned_income content money
   input aged_25_or_over content boolean
   input has_lcw content boolean
+  input housing_costs_element content money
   internal deduction_rate content decimal
   output standard_allowance content money
   output work_allowance content money
   output earnings_deduction content money
+  output maximum_amount content money
   output award content money
 ```
 
@@ -75,27 +79,74 @@ scope UniversalCredit:
     consequence equals $424.90
 ```
 
+## Housing costs element
+
+The housing costs element is an input. It stands for the amount that
+[regulation 26](https://www.legislation.gov.uk/uksi/2013/376/regulation/26) and
+Schedule 4 of the Universal Credit Regulations 2013 give for eligible rent,
+taken as already worked out, per assessment period (checked 29 October 2026).
+Nothing that sits between the rent and the element is modelled. The gap is
+recorded in `docs/model-gaps.md`.
+
+## Maximum amount
+
+Section 8(2) of the
+[Welfare Reform Act 2012](https://www.legislation.gov.uk/ukpga/2012/5/section/8)
+makes the maximum amount the total of the standard allowance, the child
+amounts, the housing costs amount and other particular needs (checked 29
+October 2026). Only the first and third are modelled, and the third is an
+input.
+
+```catala
+scope UniversalCredit:
+  definition maximum_amount equals standard_allowance + housing_costs_element
+```
+
 ## Work allowance
 
-Regulation 22(2) gives the amount of the work allowance. The higher amount is
-the one substituted by [S.I. 2026/148](https://www.legislation.gov.uk/uksi/2026/148)
-in the version of the regulation dated 6 April 2026.
+Regulation 22(2) gives the amount of the work allowance. Both amounts were
+substituted by [S.I. 2026/148](https://www.legislation.gov.uk/uksi/2026/148)
+in the version of the regulation dated 6 April 2026. The higher amount applies
+when the award has no housing costs element, and the lower one when it has.
+This file reads "contains an amount for the housing costs element" as an
+element above zero, as PolicyEngine UK does. The reading is the project's, for
+specialist review.
 
-Single claimant who "has limited capability for work": £710.00, under the
-higher work allowance heading
-([regulation 22](https://www.legislation.gov.uk/uksi/2013/376/regulation/22),
+The three definitions below are parallel cases, not a rule with exceptions, so
+their conditions exclude each other.
+
+Single claimant who "has limited capability for work", where "the award
+contains no amount for the housing costs element": £710.00, the higher work
+allowance
+([regulation 22(2)(a)](https://www.legislation.gov.uk/uksi/2013/376/regulation/22),
 checked 29 October 2026)
 
 ```catala
 scope UniversalCredit:
   definition work_allowance
-    under condition assessment_period_start >= |2026-04-06| and has_lcw
+    under condition assessment_period_start >= |2026-04-06|
+      and has_lcw and not (housing_costs_element > $0.00)
     consequence equals $710.00
+```
+
+Single claimant who "has limited capability for work", where "the award does
+contain an amount for the housing costs element": £427.00, the lower work
+allowance
+([regulation 22(2)(b)](https://www.legislation.gov.uk/uksi/2013/376/regulation/22),
+checked 29 October 2026)
+
+```catala
+scope UniversalCredit:
+  definition work_allowance
+    under condition assessment_period_start >= |2026-04-06|
+      and has_lcw and housing_costs_element > $0.00
+    consequence equals $427.00
 ```
 
 Regulation 22(1)(b)(i) covers a claimant for whom no work allowance is
 specified. The whole of that claimant's earned income is then used, which this
-file represents as a work allowance of zero.
+file represents as a work allowance of zero, whether or not the award has a
+housing costs element.
 
 "in a case where no work allowance is specified in the table below"
 ([regulation 22](https://www.legislation.gov.uk/uksi/2013/376/regulation/22),
@@ -144,13 +195,12 @@ scope UniversalCredit:
 ## Award
 
 Regulation 22(1) deducts earned and unearned income from the maximum amount
-under [section 8(3) of the Welfare Reform Act 2012](https://www.legislation.gov.uk/ukpga/2012/5/section/8). The award cannot be negative. In this skeleton the
-maximum amount is the standard allowance.
+under [section 8(3) of the Welfare Reform Act 2012](https://www.legislation.gov.uk/ukpga/2012/5/section/8). The award cannot be negative.
 
 ```catala
 scope UniversalCredit:
   definition award equals
-    if standard_allowance - earnings_deduction > $0.00
-    then standard_allowance - earnings_deduction
+    if maximum_amount - earnings_deduction > $0.00
+    then maximum_amount - earnings_deduction
     else $0.00
 ```
