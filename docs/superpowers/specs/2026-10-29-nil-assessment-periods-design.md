@@ -245,7 +245,7 @@ Test-first, with one layer of tests per kind of risk. Tests that call PolicyEngi
 
 These readings drive the milestone's findings. All are questions for an outside reviewer before any finding is published.
 
-1. One nil period ends the award from its first day (reading 1). The text supports this firmly.
+1. One nil period ends the award from its first day (reading 1). The wording of paragraph 20 is clear. That the award ends from the nil period's first day is inferred, and ADM A2050, Example 3, supports it.
 2. Treated claims under regulation 32A follow the old assessment period dates, for up to 5 months counted from the nil period (reading 2). The count from the nil period rests on ADM examples.
 3. Regulation 54A's surplus is added to the first period of each claim, carries on only on a claim that fails, and stops at an award (reading 4). The first-period point is inferred from paragraph (3) and the ADM's examples.
 4. The relevant threshold uses the M and WA of the period of the claim being decided (reading 5). Unresolved in the text.
