@@ -27,9 +27,9 @@ from datetime import date
 from pathlib import Path
 
 from bm import evaluate, ir, solvers, translate, units
+from bm.household import Script
 from bm.inputs import Bound
-from bm.coverage import declarations
-from bm.translate import SmtModule, apply, literal, quote
+from bm.translate import SmtModule, literal
 
 ROOT = Path(__file__).resolve().parents[2]
 UC_IR = ROOT / "build" / "uc.bm-ir.json"
@@ -87,34 +87,26 @@ def last_penny_earnings(
     there is none or Z3 runs out of time, and `SolverDisagreement` if cvc5
     finds smaller earnings with an award of 0.
     """
-    sorts = {v.name: translate.SORTS[v.type] for v in module.inputs}
-    args = [quote(name) for name in sorts]
     fixed = {
         "assessment_period_start": units.days(start),
         "aged_25_or_over": bool(aged_25_or_over),
         "has_lcw": bool(has_lcw),
     }
-    lines = [module.text, *declarations(module, bounds)]
-    for name, value in fixed.items():
-        lines.append(f"(assert (= {quote(name)} {literal(sorts[name], value)}))")
-    for ob in module.obligations:
-        lines.append(f"(assert (not {ob.formula}))")
-    lines.append(f"(declare-const {quote(AWARD)} Int)")
-    lines.append(f"(assert (= {quote(AWARD)} {apply(module.functions['award'], args)}))")
-    lines.append(f"(assert (= {quote(AWARD)} 0))")
-    earned = quote("earned_income")
+    script = Script(module, bounds)
+    household = script.instance(fixed=fixed)
+    award = script.declare(AWARD, "Int", household.output("award"))
+    script.add(f"(assert (= {award} 0))")
+    earned = household.inputs["earned_income"]
 
-    z3_result = solvers.run(
-        "z3", "\n".join([*lines, f"(minimize {earned})", "(check-sat)"]) + "\n", timeout_ms
-    )
+    z3_result = solvers.run("z3", script.text(f"(minimize {earned})"), timeout_ms)
     if z3_result.status != "sat":
         raise NoLastPenny(
             f"z3 says {z3_result.status} for an award of 0 at {fixed}; expected a household"
         )
-    found = int(z3_result.model["earned_income"])
+    found = int(household.household(z3_result.model)["earned_income"])
 
     smaller = f"(assert (< {earned} {literal('Int', found)}))"
-    cvc5_result = solvers.run("cvc5", "\n".join([*lines, smaller, "(check-sat)"]) + "\n", timeout_ms)
+    cvc5_result = solvers.run("cvc5", script.text(smaller), timeout_ms)
     if cvc5_result.status == "sat":
         raise solvers.SolverDisagreement(
             z3_result, cvc5_result, f"cvc5 finds an award of 0 below earnings of {found} at {fixed}"
