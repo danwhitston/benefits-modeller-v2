@@ -361,11 +361,13 @@ def differential_text(d: Differential, inputs: list[Var]) -> list[str]:
 
 
 def provenance_text(p: Provenance) -> list[str]:
-    state = "uncommitted changes" if p.rules_dirty else "clean"
+    def state(dirty: bool) -> str:
+        return "uncommitted changes" if dirty else "clean"
+
     return [
         "Provenance",
-        f"  rules commit     {p.rules_commit} ({state})",
-        f"  code commit      {p.code_commit}",
+        f"  rules commit     {p.rules_commit} ({state(p.rules_dirty)})",
+        f"  code commit      {p.code_commit} ({state(p.code_dirty)})",
         f"  catala           {p.catala_version} (the IR was exported with {p.ir_catala_version})",
         f"  z3               {p.z3_version}",
         f"  cvc5             {p.cvc5_version}",

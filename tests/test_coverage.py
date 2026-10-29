@@ -49,11 +49,26 @@ def test_uc_coverage_finds_date_gap():
             evaluate.outputs(module, example)
 
 
-def test_coverage_timeout_is_unknown():
+@pytest.mark.parametrize("out_of_time", ["z3", "cvc5"])
+def test_coverage_timeout_is_unknown(monkeypatch, out_of_time):
+    # The solver that runs out of time answers unknown. Stubbing that answer
+    # keeps the test deterministic: a real 1 ms limit may be enough on a fast
+    # runner. Z3 is stubbed unsat when cvc5 is the one to time out, so that
+    # cvc5 is asked to confirm every obligation.
+    limits = []
+
+    def run(solver, script, timeout_ms):
+        limits.append(timeout_ms)
+        status = "unknown" if solver == out_of_time else "unsat"
+        return solvers.SolverResult(status, None, "stub")
+
+    monkeypatch.setattr(solvers, "run", run)
+    module = _module()
     bounds = inputs.bounds(inputs.load(UC_BOUNDS, _scope()))
-    findings = coverage.check(_module(), bounds, timeout_ms=1)
-    # A millisecond may or may not be enough; whatever is reported is unknown
-    # with no example, never a household that was not found.
+    findings = coverage.check(module, bounds, timeout_ms=5_000)
+    assert limits and all(limit == 5_000 for limit in limits)
+    # Every obligation is unknown with no example, never a household not found.
+    assert len(findings) == len(module.obligations) > 0
     assert all(f.status == "unknown" and f.example is None for f in findings)
 
 

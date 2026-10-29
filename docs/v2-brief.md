@@ -168,14 +168,7 @@ Scope agreed on 29 October 2026. [Design](superpowers/specs/2026-10-29-first-str
 
 ### Tidy-up between milestones
 
-A small pull request, separate from any milestone:
-
-- `code_commit` in the provenance record does not say whether the working tree was dirty.
-- Tests that use `timeout_ms=1` could fail intermittently on a fast runner.
-- The mismatch count in the [mismatch log](mismatches.md) is tied to one random draw and goes stale if the draw changes.
-- `ir.py` accepts a `bm_ir_version` of `false` or `0.0`.
-- The check that the rules are newer than the IR also reacts to stray editor files in `rules/`.
-- The mismatch log describes the rounding reading as one "the project owner confirmed". It should say the reading was adopted by the project, pending review by a benefits specialist, because the project has no specialist sign-off (see [model gaps](model-gaps.md)).
+None outstanding. The items deferred from the milestone 1 and 2 reviews were fixed in one pull request after milestone 2.
 
 ### Candidates for later milestones
 

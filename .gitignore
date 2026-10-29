@@ -4,4 +4,5 @@ _opam/
 _build/
 build/
 .venv/
+__pycache__/
 .claude/worktrees/

@@ -12,10 +12,10 @@ from bm.household import Script, smt_sum
 from bm.strategic import (
     DEFAULT_START,
     RULES,
+    JudgementResult,
     NoHousehold,
     QueryRefused,
     ReplayMismatch,
-    JudgementResult,
     Split,
     TimingResult,
     cases,

@@ -3,9 +3,9 @@
 import json
 import os
 import subprocess
-from importlib import metadata
 from dataclasses import dataclass
 from fractions import Fraction
+from importlib import metadata
 from pathlib import Path
 
 import pytest
@@ -74,6 +74,16 @@ def test_provenance_tool_versions():
     assert p.z3_version and p.cvc5_version
     assert p.policyengine_uk_version == metadata.version("policyengine-uk")
     assert p.code_commit == git(ROOT, "rev-parse", "HEAD")
+    assert p.code_dirty is bool(git(ROOT, "status", "--porcelain"))
+
+
+def test_provenance_code_dirty_flag(rules_repo: Path, monkeypatch):
+    monkeypatch.setattr(provenance, "REPO", rules_repo)
+    clean = provenance.collect(rules_repo)
+    assert clean.code_commit == git(rules_repo, "rev-parse", "HEAD")
+    assert clean.code_dirty is False
+    (rules_repo / "code.py").write_text("untracked\n")
+    assert provenance.collect(rules_repo).code_dirty is True
 
 
 def write_ir(path: Path, catala_version: str) -> Path:
@@ -106,6 +116,27 @@ def test_provenance_rejects_rules_newer_than_the_ir(tmp_path: Path):
         provenance.collect(rules, ir_file)
     os.utime(rules / "uc.catala_en", (500_000, 500_000))
     assert provenance.collect(rules, ir_file).rules_dirty is True  # untracked, but not stale
+
+
+def test_provenance_staleness_ignores_files_other_than_the_rules(tmp_path: Path):
+    rules = tmp_path / "rules"
+    (rules / "sub").mkdir(parents=True)
+    (rules / "uc.catala_en").write_text("rules\n")
+    ir_file = write_ir(tmp_path / "uc.bm-ir.json", "1.3.0")
+    os.utime(ir_file, (1_000_000, 1_000_000))
+    os.utime(rules / "uc.catala_en", (500_000, 500_000))
+    # Editors' backup, swap and lock files, and the bounds, which are not exported.
+    for name in ("uc.catala_en~", ".uc.catala_en.swp", ".#uc.catala_en", "#uc.catala_en#",
+                 "uc.inputs.toml"):
+        (rules / name).write_text("stray\n")
+        os.utime(rules / name, (2_000_000, 2_000_000))
+    git(tmp_path, "init", "-q")
+    provenance.collect(rules, ir_file)
+    # A rules file in a subdirectory still counts.
+    (rules / "sub" / "extra.catala_en").write_text("rules\n")
+    os.utime(rules / "sub" / "extra.catala_en", (2_000_000, 2_000_000))
+    with pytest.raises(provenance.ProvenanceError, match="extra.catala_en was changed after"):
+        provenance.collect(rules, ir_file)
 
 
 def test_report_with_a_mismatched_ir_fails_before_the_slow_checks(tmp_path: Path, capsys):
@@ -251,7 +282,7 @@ def make_report(
 ) -> report.Report:
     emr = EmrResult(status, rate, 55, HOUSEHOLD, 57, 2, {"z3": "1", "cvc5": "2"})
     d = report.Differential(5, 1, list(explained), list(unexplained))
-    p = provenance.Provenance("abc123", True, "def456", "1.3.0", "1.3.0", "1", "2", "2.164.2")
+    p = provenance.Provenance("abc123", True, "def456", False, "1.3.0", "1.3.0", "1", "2", "2.164.2")
     return report.Report(
         "UC",
         INPUTS,
@@ -298,6 +329,7 @@ def test_text_report_contents():
     assert "docs/mismatches.md" in text
     assert "award catala £0.57, z3 £0.57, policyengine £0.58" in text
     assert "abc123 (uncommitted changes)" in text
+    assert "def456 (clean)" in text
     assert "1.3.0 (the IR was exported with 1.3.0)" in text
 
 
@@ -330,8 +362,8 @@ def test_report_json_shape(capsys):
     m = data["mismatches"]
     assert m["total"] == len(m["explained"]) + len(m["unexplained"])
     assert set(data["provenance"]) == {
-        "rules_commit", "rules_dirty", "code_commit", "catala_version", "ir_catala_version",
-        "z3_version", "cvc5_version", "policyengine_uk_version",
+        "rules_commit", "rules_dirty", "code_commit", "code_dirty", "catala_version",
+        "ir_catala_version", "z3_version", "cvc5_version", "policyengine_uk_version",
     }
 
 

@@ -116,7 +116,8 @@ def load(path: Path) -> Scope:
 
 def parse(data: dict) -> Scope:
     version = data.get("bm_ir_version")
-    if version != IR_VERSION:
+    # `False == 0` and `0.0 == 0` in Python, so the type is checked as well.
+    if type(version) is not int or version != IR_VERSION:
         raise UnsupportedIrVersion(
             f"bm_ir_version {version!r} is not supported (expected {IR_VERSION})"
         )
