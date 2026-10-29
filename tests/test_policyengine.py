@@ -30,3 +30,10 @@ def test_pe_period_pinned():
     may = household(date(2026, 5, 1), 50_000, True, False)
     nov = household(date(2026, 11, 1), 50_000, True, False)
     assert policyengine.award(may) == policyengine.award(nov) == 14_990
+    # The tax year begins on 6 April, and the 2025/26 rates are lower:
+    # 400.14 - 275.00 = 125.14. This pins the boundary.
+    before = household(date(2026, 4, 5), 50_000, True, False)
+    after = household(date(2026, 4, 6), 50_000, True, False)
+    assert policyengine.award(before) == 12_514
+    assert policyengine.award(after) == 14_990
+

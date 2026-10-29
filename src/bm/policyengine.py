@@ -80,9 +80,12 @@ Exact pence. PolicyEngine returns a float32 array and does no rounding. The
 conversion is in `_to_pence`: the float is read through `Decimal(repr(x))`,
 never compared as a float, turned into monthly pence, snapped to the nearest
 twentieth of a penny (every amount is a whole number of pence at 55%, a
-multiple of 1/20 penny), checked to be within 0.02 of a penny of that grid (the grid spacing is 0.05)
-(otherwise it raises), and then rounded half up to a whole penny as
+multiple of 1/20 penny), and then rounded half up to a whole penny as
 regulation 6(1) of S.I. 2013/376 does. This rounds the award once, at the end.
+The snap raises if the value is more than 0.02 of a penny from the grid. That
+is a guard against gross corruption only: the grid spacing is 0.05, so values
+up to 0.02 off it pass, and float32 noise reached 0.0072 in a 3,000-household
+sweep, so a tighter limit would leave little margin.
 Our Catala rules round the earnings deduction instead. The two orders can
 differ by a penny when the deduction ends in a half penny, for example earnings
 of 710.10 pounds with limited capability for work. Such a household is logged
@@ -130,6 +133,12 @@ def award(inputs: dict[str, int | bool]) -> int:
     """The monthly Universal Credit award in pence, as PolicyEngine UK computes it."""
     if set(inputs) != INPUT_NAMES:
         raise ValueError(f"expected exactly {sorted(INPUT_NAMES)}, got {sorted(inputs)}")
+    for name in ("assessment_period_start", "earned_income"):
+        if type(inputs[name]) is not int:
+            raise TypeError(f"{name} must be an int, got {inputs[name]!r}")
+    for name in ("aged_25_or_over", "has_lcw"):
+        if type(inputs[name]) is not bool:
+            raise TypeError(f"{name} must be a bool, got {inputs[name]!r}")
     start = EPOCH + timedelta(days=inputs["assessment_period_start"])
     period = str(tax_year(start))
     annual_earned_income = _pounds(inputs["earned_income"] * MONTHS_IN_YEAR)
