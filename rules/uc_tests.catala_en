@@ -1,0 +1,211 @@
+> Using Uc
+
+# Tests for the Universal Credit skeleton rules
+
+Each test scope below calls `UniversalCredit` with fixed inputs and asserts the
+outputs. Every case has an assessment period starting on 1 May 2026, which is
+inside the 2026/27 parameter dates. Catala's English syntax writes money with
+the `$` symbol; in these files the unit is pounds sterling.
+
+Rounding follows regulation 6(1) of the Universal Credit Regulations 2013
+(checked 29 October 2026): a fraction of a penny is disregarded if under half a
+penny, and otherwise treated as a penny. The expected values are written out as
+arithmetic in a comment in each test.
+
+## Case: no earnings
+
+```catala
+#[test]
+declaration scope TestNoEarnings:
+  output computation content Uc.UniversalCredit
+
+scope TestNoEarnings:
+  # Earnings are below the work allowance, so nothing is deducted.
+  # 424.90 - 0.00 = 424.90.
+  definition computation equals
+    output of Uc.UniversalCredit with {
+      -- assessment_period_start: |2026-05-01|
+      -- earned_income: $0.00
+      -- aged_25_or_over: true
+      -- has_lcw: true
+    }
+  assertion (computation.work_allowance = $710.00)
+  assertion (computation.earnings_deduction = $0.00)
+  assertion (computation.award = $424.90)
+```
+
+## Case: at work allowance
+
+```catala
+#[test]
+declaration scope TestAtWorkAllowance:
+  output computation content Uc.UniversalCredit
+
+scope TestAtWorkAllowance:
+  # Earnings equal the work allowance, so nothing is deducted.
+  # 710.00 - 710.00 = 0.00, and 424.90 - 0.00 = 424.90.
+  definition computation equals
+    output of Uc.UniversalCredit with {
+      -- assessment_period_start: |2026-05-01|
+      -- earned_income: $710.00
+      -- aged_25_or_over: true
+      -- has_lcw: true
+    }
+  assertion (computation.work_allowance = $710.00)
+  assertion (computation.earnings_deduction = $0.00)
+  assertion (computation.award = $424.90)
+```
+
+## Case: above work allowance
+
+```catala
+#[test]
+declaration scope TestAboveWorkAllowance:
+  output computation content Uc.UniversalCredit
+
+scope TestAboveWorkAllowance:
+  # 1,000.00 - 710.00 = 290.00; 55% x 290.00 = 159.50 exactly.
+  # 424.90 - 159.50 = 265.40.
+  definition computation equals
+    output of Uc.UniversalCredit with {
+      -- assessment_period_start: |2026-05-01|
+      -- earned_income: $1,000.00
+      -- aged_25_or_over: true
+      -- has_lcw: true
+    }
+  assertion (computation.work_allowance = $710.00)
+  assertion (computation.earnings_deduction = $159.50)
+  assertion (computation.award = $265.40)
+```
+
+## Case: half penny rounds up
+
+```catala
+#[test]
+declaration scope TestHalfPennyRoundsUp:
+  output computation content Uc.UniversalCredit
+
+scope TestHalfPennyRoundsUp:
+  # 710.10 - 710.00 = 0.10; 55% x 10p = 5.5p, which rounds to 6p.
+  # 424.90 - 0.06 = 424.84.
+  definition computation equals
+    output of Uc.UniversalCredit with {
+      -- assessment_period_start: |2026-05-01|
+      -- earned_income: $710.10
+      -- aged_25_or_over: true
+      -- has_lcw: true
+    }
+  assertion (computation.work_allowance = $710.00)
+  assertion (computation.earnings_deduction = $0.06)
+  assertion (computation.award = $424.84)
+```
+
+## Case: sub-penny rounds up
+
+```catala
+#[test]
+declaration scope TestSubPennyRoundsUp:
+  output computation content Uc.UniversalCredit
+
+scope TestSubPennyRoundsUp:
+  # 710.01 - 710.00 = 0.01; 55% x 1p = 0.55p, which rounds to 1p.
+  # 424.90 - 0.01 = 424.89.
+  definition computation equals
+    output of Uc.UniversalCredit with {
+      -- assessment_period_start: |2026-05-01|
+      -- earned_income: $710.01
+      -- aged_25_or_over: true
+      -- has_lcw: true
+    }
+  assertion (computation.work_allowance = $710.00)
+  assertion (computation.earnings_deduction = $0.01)
+  assertion (computation.award = $424.89)
+```
+
+## Case: last penny of award
+
+```catala
+#[test]
+declaration scope TestLastPennyOfAward:
+  output computation content Uc.UniversalCredit
+
+scope TestLastPennyOfAward:
+  # 1,482.53 - 710.00 = 772.53; 55% x 772.53 = 424.8915, which rounds to 424.89.
+  # 424.90 - 424.89 = 0.01.
+  definition computation equals
+    output of Uc.UniversalCredit with {
+      -- assessment_period_start: |2026-05-01|
+      -- earned_income: $1,482.53
+      -- aged_25_or_over: true
+      -- has_lcw: true
+    }
+  assertion (computation.work_allowance = $710.00)
+  assertion (computation.earnings_deduction = $424.89)
+  assertion (computation.award = $0.01)
+```
+
+## Case: award reaches zero
+
+```catala
+#[test]
+declaration scope TestAwardReachesZero:
+  output computation content Uc.UniversalCredit
+
+scope TestAwardReachesZero:
+  # 1,482.54 - 710.00 = 772.54; 55% x 772.54 = 424.897, which rounds to 424.90.
+  # 424.90 - 424.90 = 0.00.
+  definition computation equals
+    output of Uc.UniversalCredit with {
+      -- assessment_period_start: |2026-05-01|
+      -- earned_income: $1,482.54
+      -- aged_25_or_over: true
+      -- has_lcw: true
+    }
+  assertion (computation.work_allowance = $710.00)
+  assertion (computation.earnings_deduction = $424.90)
+  assertion (computation.award = $0.00)
+```
+
+## Case: no LCW
+
+```catala
+#[test]
+declaration scope TestNoLcw:
+  output computation content Uc.UniversalCredit
+
+scope TestNoLcw:
+  # No work allowance applies, so the whole 500.00 counts: 55% x 500.00 = 275.00.
+  # 424.90 - 275.00 = 149.90.
+  definition computation equals
+    output of Uc.UniversalCredit with {
+      -- assessment_period_start: |2026-05-01|
+      -- earned_income: $500.00
+      -- aged_25_or_over: true
+      -- has_lcw: false
+    }
+  assertion (computation.work_allowance = $0.00)
+  assertion (computation.earnings_deduction = $275.00)
+  assertion (computation.award = $149.90)
+```
+
+## Case: under 25, floored at zero
+
+```catala
+#[test]
+declaration scope TestUnderTwentyFiveFloored:
+  output computation content Uc.UniversalCredit
+
+scope TestUnderTwentyFiveFloored:
+  # No work allowance applies: 55% x 1,000.00 = 550.00.
+  # 338.58 - 550.00 = -211.42, which is floored at 0.00.
+  definition computation equals
+    output of Uc.UniversalCredit with {
+      -- assessment_period_start: |2026-05-01|
+      -- earned_income: $1,000.00
+      -- aged_25_or_over: false
+      -- has_lcw: false
+    }
+  assertion (computation.work_allowance = $0.00)
+  assertion (computation.earnings_deduction = $550.00)
+  assertion (computation.award = $0.00)
+```

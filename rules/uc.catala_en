@@ -1,0 +1,147 @@
+> Module Uc
+
+# Universal Credit: skeleton rules for 2026/27
+
+This file holds a thin slice of Universal Credit for a single claimant: the
+standard allowance, the work allowance and the earnings deduction, and the
+award that follows from them. It is written for the walking skeleton of this
+project and models only what is needed to exercise the pipeline.
+
+Simplifications, stated so that nobody reads more into the rules than is there:
+
+* Only single claimants are modelled.
+* The work allowance is applied when the claimant has limited capability for
+  work (`has_lcw`). Responsibility for a child is not modelled.
+* The higher work allowance is used throughout. The lower one, which applies
+  when the award includes a housing costs element, is not modelled.
+* The LCWRA element, the child element and every other element are left out.
+  The maximum amount is the standard allowance alone.
+* Unearned income is not modelled.
+
+Catala's English syntax writes money with the `$` symbol. In this file the unit
+is pounds sterling.
+
+Every parameter below is defined only for assessment periods starting on or
+after 6 April 2026. For an earlier date no definition applies, and Catala stops
+with an error instead of returning a value from rates that do not apply.
+Sources were checked on 29 October 2026.
+
+## Scope declaration
+
+```catala-metadata
+declaration scope UniversalCredit:
+  input assessment_period_start content date
+  input earned_income content money
+  input aged_25_or_over content boolean
+  input has_lcw content boolean
+  internal deduction_rate content decimal
+  output standard_allowance content money
+  output work_allowance content money
+  output earnings_deduction content money
+  output award content money
+```
+
+## Standard allowance
+
+Regulation 36 gives the amount of the standard allowance. The rates below were
+substituted by [S.I. 2026/113](https://www.legislation.gov.uk/uksi/2026/113),
+with effect for assessment periods starting on or after 6 April 2026.
+
+"single claimant aged under 25 £338.58"
+([regulation 36](https://www.legislation.gov.uk/uksi/2013/376/regulation/36),
+checked 29 October 2026)
+
+```catala
+scope UniversalCredit:
+  definition standard_allowance
+    under condition assessment_period_start >= |2026-04-06| and not aged_25_or_over
+    consequence equals $338.58
+```
+
+"single claimant aged 25 or over £424.90"
+([regulation 36](https://www.legislation.gov.uk/uksi/2013/376/regulation/36),
+checked 29 October 2026)
+
+```catala
+scope UniversalCredit:
+  definition standard_allowance
+    under condition assessment_period_start >= |2026-04-06| and aged_25_or_over
+    consequence equals $424.90
+```
+
+## Work allowance
+
+Regulation 22(2) gives the amount of the work allowance. The higher amount is
+the one substituted by [S.I. 2026/148](https://www.legislation.gov.uk/uksi/2026/148)
+in the version of the regulation dated 6 April 2026.
+
+"Single claimant ... has limited capability for work £710.00"
+([regulation 22](https://www.legislation.gov.uk/uksi/2013/376/regulation/22),
+checked 29 October 2026)
+
+```catala
+scope UniversalCredit:
+  definition work_allowance
+    under condition assessment_period_start >= |2026-04-06| and has_lcw
+    consequence equals $710.00
+```
+
+Regulation 22(1)(b)(i) covers a claimant for whom no work allowance is
+specified. The whole of that claimant's earned income is then used, which this
+file represents as a work allowance of zero.
+
+"in a case where no work allowance is specified in the table below"
+([regulation 22](https://www.legislation.gov.uk/uksi/2013/376/regulation/22),
+checked 29 October 2026)
+
+```catala
+scope UniversalCredit:
+  definition work_allowance
+    under condition assessment_period_start >= |2026-04-06| and not has_lcw
+    consequence equals $0.00
+```
+
+## Earnings deduction
+
+The deduction rate is 55%, as regulation 22(1)(b) reads in the version dated
+6 April 2026.
+
+"55% of the amount by which that earned income exceeds the work allowance"
+([regulation 22](https://www.legislation.gov.uk/uksi/2013/376/regulation/22),
+checked 29 October 2026)
+
+```catala
+scope UniversalCredit:
+  definition deduction_rate
+    under condition assessment_period_start >= |2026-04-06|
+    consequence equals 55%
+```
+
+The deduction is one money-times-decimal step, so Catala rounds it once, to the
+nearest penny with halves rounded away from zero. That matches regulation 6(1).
+
+"otherwise it is to be treated as a penny"
+([regulation 6](https://www.legislation.gov.uk/uksi/2013/376/regulation/6),
+checked 29 October 2026)
+
+```catala
+scope UniversalCredit:
+  definition earnings_deduction equals
+    if earned_income > work_allowance
+    then (earned_income - work_allowance) * deduction_rate
+    else $0.00
+```
+
+## Award
+
+Regulation 22(1) deducts earned and unearned income from the maximum amount
+under [section 8(3) of the Welfare Reform Act 2012](https://www.legislation.gov.uk/ukpga/2012/5/section/8). The award cannot be negative. In this skeleton the
+maximum amount is the standard allowance.
+
+```catala
+scope UniversalCredit:
+  definition award equals
+    if standard_allowance - earnings_deduction > $0.00
+    then standard_allowance - earnings_deduction
+    else $0.00
+```

@@ -1,0 +1,3 @@
+[project]
+include_dirs = ["rules"]
+build_dir = "_build"
