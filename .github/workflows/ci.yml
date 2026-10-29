@@ -1,0 +1,66 @@
+# Runs on pull requests: build the Catala rules, export them, run all tests,
+# then run the differential check. Not yet run on GitHub: it was written and
+# checked for YAML syntax only.
+name: CI
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+env:
+  # Keep in step with the versions the Makefile and docs/bm-ir.md name.
+  CATALA_VERSION: "1.3.0"
+  OCAML_VERSION: "5.3.0"
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      # Python 3.14 comes from uv, at the version in .python-version
+      # (pyproject.toml needs >=3.14, which the runner image may not have).
+      - name: Read the Python version
+        id: python
+        run: echo "version=$(cat .python-version)" >> "$GITHUB_OUTPUT"
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: ${{ steps.python.outputs.version }}
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+
+      - name: Install system packages for opam and Catala
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y opam libgmp-dev pkg-config ninja-build
+
+      # A local switch is only known to the opam root that created it, so the
+      # root (~/.opam) is cached with _opam.
+      - name: Cache the opam switch
+        id: opam-cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            _opam
+            ~/.opam
+          key: opam-${{ runner.os }}-catala-${{ env.CATALA_VERSION }}-ocaml-${{ env.OCAML_VERSION }}
+
+      - name: Create the opam switch with Catala
+        if: steps.opam-cache.outputs.cache-hit != 'true'
+        run: |
+          opam init --bare --no-setup --disable-sandboxing -y
+          opam switch create . "ocaml-base-compiler.${OCAML_VERSION}" -y
+          opam install "catala.${CATALA_VERSION}" -y
+
+      - name: Check the toolchain
+        run: |
+          opam exec -- catala --version
+          uv run python --version
+
+      - run: uv sync --locked
+      - run: make build
+      - run: make export
+      - run: make test
+      - run: make check

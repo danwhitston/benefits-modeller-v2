@@ -1,4 +1,4 @@
-.PHONY: build test export
+.PHONY: build test export check
 
 # Catala comes from the local opam switch in _opam/, so every call goes through
 # `opam exec`. The exporter plugin needs no opam packages beyond those Catala
@@ -28,3 +28,8 @@ export: build
 	mkdir -p build
 	$(CATALA) bm-export --plugin-dir $(PLUGIN_DIR) -I rules \
 	  -s UniversalCredit rules/uc.catala_en -o build/uc.bm-ir.json
+
+# The differential check: Catala, Z3 and PolicyEngine UK on generated households.
+# Exits 1 on a mismatch that docs/mismatches.md does not explain.
+check: export
+	uv run bm check build/uc.bm-ir.json --bounds rules/uc.inputs.toml
