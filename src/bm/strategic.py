@@ -54,6 +54,7 @@ with several it is `|bm.gain|`, as below. For the case with LCW, it reads:
     (declare-const |bm.gain| Int)
     (assert (<= |bm.gain| (- (+ <c1 split awards>) (+ <c1 baseline awards>))))
     (assert (<= |bm.gain| (- (+ <c2 split awards>) (+ <c2 baseline awards>))))
+    (assert (>= |bm.gain| 0))                      ; the even split's gain
 
 Every optimum is confirmed by cvc5 (`bm.solvers.optimise_and_confirm`) and
 replayed through Catala's interpreter (`replay`).
@@ -255,25 +256,40 @@ def timing(
 
     def optimise(numbered: list[tuple[int, dict[str, bool]]], what: str):
         script, households, gains = _script(module, specs, choice, fixed, total, starts, numbered)
+        plain = script.text()
         if len(gains) == 1:
             objective = gains[0]
         else:
             objective = script.declare("bm.gain", "Int")
             for gain in gains:
                 script.add(f"(assert (<= {objective} {gain}))")
+        # If any split is feasible, so is the even split: its households are
+        # the baseline's, and its gain is 0 in every case. So the optimum is
+        # at least 0. Saying so is sound, and it keeps Z3's search short:
+        # without it, Z3 took from 0.01 s to 18 s on the same small script.
+        script.add(f"(assert (>= {objective} 0))")
         optimum = solvers.optimise_and_confirm(
             script.lines, objective, "max", timeout_ms, f"a timing gain above Z3's maximum {what}"
         )
         if optimum.status == "infeasible":
-            raise NoHousehold(
-                f"no split of {choice.input} keeps every award above nil {what},"
-                " within the bounds and the fixed values"
-            )
+            # Infeasibility must not rest on the bound, so check without it.
+            check = solvers.run("z3", plain, timeout_ms)
+            if check.status == "unsat":
+                raise NoHousehold(
+                    f"no split of {choice.input} keeps every award above nil {what},"
+                    " within the bounds and the fixed values"
+                )
+            if check.status == "sat":
+                raise RuntimeError(
+                    f"a split keeps every award above nil {what}, but none has a gain"
+                    " of at least 0, which the even split always has: a bug in the encoding"
+                )
+            optimum = solvers.Optimum("unknown", None, None, optimum.versions, False)
         witnesses = [] if optimum.model is None else _witnesses(households, optimum.model)
         return optimum, witnesses
 
     numbered = list(enumerate(all_cases, start=1))
-    runs = [optimise(numbered, "in the worst case")]
+    runs = [optimise(numbered, "in every case")]
     if len(numbered) > 1:
         runs += [optimise([(c, case)], f"in case {case}") for c, case in numbered]
     # With one case, the worst case is that case's own optimisation.

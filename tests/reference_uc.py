@@ -7,9 +7,11 @@ assessment period is taken to start on or after 6 April 2026, where the rates
 below apply.
 
 The deduction is 55% of the earnings above the work allowance, rounded to the
-nearest penny with halves rounded up (regulation 6(1) of the Universal Credit
-Regulations 2013). For x >= 0 pence that is `(55 * x + 50) // 100`, which is
-Catala's rounding, half away from zero, on a non-negative amount.
+nearest penny with halves rounded up
+([regulation 6(1)](https://www.legislation.gov.uk/uksi/2013/376/regulation/6)
+of the Universal Credit Regulations 2013, checked 29 October 2026). For x >= 0
+pence that is `(55 * x + 50) // 100`, which is Catala's rounding, half away
+from zero, on a non-negative amount.
 """
 
 STANDARD_ALLOWANCE = {True: 42_490, False: 33_858}  # 25 or over; under 25
