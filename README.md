@@ -2,7 +2,7 @@
 
 A second version of [benefits-modeller](https://github.com/danwhitston/benefits-modeller): UK benefit rules written in [Catala](https://catala-lang.org/), with an SMT solver for questions such as where the cliff edges are and how high effective marginal rates can go.
 
-Early stage. The first milestone runs end to end for a thin slice of Universal Credit (a standard allowance, a work allowance and an earnings deduction): Catala rules, an export to JSON, a translation to SMT-LIB, queries to Z3 and cvc5, and a differential check against PolicyEngine UK. The direction and open questions are in [docs/v2-brief.md](docs/v2-brief.md).
+Early stage. The first two milestones run end to end for a thin slice of Universal Credit (a standard allowance, a housing costs element taken as one input, a work allowance and an earnings deduction): Catala rules, an export to JSON, a translation to SMT-LIB, queries to Z3 and cvc5, and a differential check against PolicyEngine UK. Milestone 2 added two strategic queries: how much moving pay between two assessment periods can gain, and what the limited capability for work finding is worth, both while every award stays above nil. The direction and open questions are in [docs/v2-brief.md](docs/v2-brief.md).
 
 ## Running it
 
@@ -26,8 +26,8 @@ The report gives the peak marginal rate with an example household, the two strat
 
 Two commands ask the strategic questions that the report also runs with their defaults. Both print, for every household they find, who controls each input and how it is checked, using the labels in `rules/uc.inputs.toml`:
 
-- `uv run bm query timing build/uc.bm-ir.json --inputs rules/uc.inputs.toml` asks how much a claimant can gain by choosing how a total of `earned_income` falls between two consecutive assessment periods, compared with an even split. Where a decision maker's finding such as `has_lcw` is open, it gives the gain that holds whichever way the finding goes. Options: `--start YYYY-MM-DD` (default 2026-04-06), `--total POUNDS`, `--fix NAME=VALUE` (repeatable) and `--cap` for the most judgement cases.
-- `uv run bm query judgement build/uc.bm-ir.json has_lcw --inputs rules/uc.inputs.toml` gives the largest and the smallest amount that the decision maker's finding on a Boolean input changes the award by, in one assessment period. It takes `--start` and `--fix` too.
+- `uv run bm query timing build/uc.bm-ir.json --inputs rules/uc.inputs.toml` asks how much a claimant can gain by choosing how a total of `earned_income` falls between two consecutive assessment periods, compared with an even split, over splits where every award stays above nil. Where a decision maker's finding such as `has_lcw` is open, it gives the gain that holds whichever way the finding goes. Options: `--start YYYY-MM-DD` (default 2026-04-06), `--total POUNDS`, `--fix NAME=VALUE` (repeatable) and `--cap` for the most judgement cases.
+- `uv run bm query judgement build/uc.bm-ir.json has_lcw --inputs rules/uc.inputs.toml` gives the largest and the smallest amount that the decision maker's finding on a Boolean input changes the award by, in one assessment period, where both awards (with and without the finding) stay above nil. It takes `--start` and `--fix` too.
 
 `--fix` gives an input a value: money in pounds with two decimal places (`housing_costs_element=500.00`), a date as `YYYY-MM-DD`, and a Boolean as `true` or `false`. Both commands take `--json`, whose output has a top-level `"unknown"` flag, and both exit with 2 when a result is unknown, which never means that there is no gain. Text output ends by pointing to [docs/model-gaps.md](docs/model-gaps.md).
 
