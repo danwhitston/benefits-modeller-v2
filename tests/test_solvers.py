@@ -1,3 +1,5 @@
+from importlib.metadata import version
+
 import pytest
 
 from bm import solvers
@@ -132,7 +134,9 @@ def test_malformed_script_is_an_error(solver):
 def test_versions():
     versions = solvers.versions()
     assert set(versions) == {"z3", "cvc5"}
-    assert versions["cvc5"] == "1.4.2"
+    # cvc5 reports its own build string: "1.4.2" from the macOS wheel,
+    # "1.4.2-modified" from the Linux one. Both must be the locked package.
+    assert versions["cvc5"].split("-")[0] == version("cvc5")
     assert versions["z3"].startswith("5.")
 
 
