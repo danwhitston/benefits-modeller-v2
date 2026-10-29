@@ -92,12 +92,13 @@ of 710.10 pounds with limited capability for work. Such a household is logged
 in `docs/mismatches.md` when the differential check finds it.
 """
 
-from datetime import date, timedelta
+from datetime import date
 from decimal import ROUND_HALF_EVEN, ROUND_HALF_UP, Decimal
 
 from policyengine_uk import Simulation
 
-EPOCH = date(1970, 1, 1)
+from bm import units
+
 MONTHS_IN_YEAR = 12
 # Every amount at a 55% taper is a multiple of 1/20 of a penny.
 GRID = 20
@@ -125,8 +126,8 @@ def _to_pence(annual_pounds: float) -> int:
 
 
 def _pounds(pence: int) -> float:
-    """Pounds from whole pence. PolicyEngine takes floats; `Decimal` keeps the division exact."""
-    return float(Decimal(pence) / 100)
+    """Pounds from whole pence. PolicyEngine takes floats; the division is exact first."""
+    return float(units.to_pounds(pence))
 
 
 def award(inputs: dict[str, int | bool]) -> int:
@@ -139,7 +140,7 @@ def award(inputs: dict[str, int | bool]) -> int:
     for name in ("aged_25_or_over", "has_lcw"):
         if type(inputs[name]) is not bool:
             raise TypeError(f"{name} must be a bool, got {inputs[name]!r}")
-    start = EPOCH + timedelta(days=inputs["assessment_period_start"])
+    start = units.to_date(inputs["assessment_period_start"])
     period = str(tax_year(start))
     annual_earned_income = _pounds(inputs["earned_income"] * MONTHS_IN_YEAR)
     person = {

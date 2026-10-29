@@ -18,12 +18,11 @@ dates, and the rate as a percentage, exact where it can be.
 import dataclasses
 import json
 from dataclasses import dataclass
-from datetime import date, timedelta
 from fractions import Fraction
 from pathlib import Path
 
 from bm import bounds as bounds_mod
-from bm import coverage, ir, provenance, queries, translate
+from bm import coverage, ir, provenance, queries, translate, units
 from bm.coverage import CoverageFinding
 from bm.ir import Var
 from bm.provenance import Provenance
@@ -31,7 +30,6 @@ from bm.queries import EmrResult
 from bm.translate import SmtModule
 
 UNITS = "money in pence; dates as days since 1970-01-01"
-EPOCH = date(1970, 1, 1)
 MISMATCH_DOC = "docs/mismatches.md"
 
 
@@ -119,10 +117,7 @@ def exit_code(report: Report) -> int:
 
 # Formatting
 
-def money(pence: int) -> str:
-    sign = "-" if pence < 0 else ""
-    pounds, rest = divmod(abs(pence), 100)
-    return f"{sign}£{pounds:,}.{rest:02d}"
+money = units.pounds_text
 
 
 def value(var_type: str, v: int | bool) -> str:
@@ -130,7 +125,7 @@ def value(var_type: str, v: int | bool) -> str:
         case "money":
             return money(v)
         case "date":
-            return (EPOCH + timedelta(days=v)).isoformat()
+            return units.to_date(v).isoformat()
         case "bool":
             return "yes" if v else "no"
     return str(v)

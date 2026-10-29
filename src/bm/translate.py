@@ -32,11 +32,10 @@ from datetime import date
 from fractions import Fraction
 from typing import Literal
 
-from bm import ir
+from bm import ir, units
 from bm.ir import Pos, Var
 
 SORTS = {"money": "Int", "integer": "Int", "date": "Int", "decimal": "Real", "bool": "Bool"}
-EPOCH = date(1970, 1, 1)
 BM_ROUND = (
     "(define-fun bm_round ((q Real)) Int"
     " (ite (>= q 0.0) (to_int (+ q 0.5)) (- (to_int (+ (- q) 0.5)))))"
@@ -248,7 +247,7 @@ class _Translator:
         match e:
             case ir.Lit(type=t, value=v):
                 if isinstance(v, date):
-                    v = (v - EPOCH).days
+                    v = units.days(v)
                 return _Const(SORTS[t], v), TRUE
             case ir.VarRef(name=name):
                 if name in self.inputs:

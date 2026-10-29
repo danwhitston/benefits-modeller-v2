@@ -6,17 +6,14 @@ TOML dates; integers are TOML integers. Bounds are inclusive and are held in
 the translator's units: pence for money, days since 1970-01-01 for dates.
 """
 
-import re
 import tomllib
 from dataclasses import dataclass
 from datetime import date, datetime
-from fractions import Fraction
 from pathlib import Path
 
+from bm import units
 from bm.ir import Scope
 
-EPOCH = date(1970, 1, 1)
-_POUNDS = re.compile(r"-?[0-9]+(\.[0-9]{1,2})?")
 
 
 class BoundsError(ValueError):
@@ -59,10 +56,13 @@ def _bound(path: Path, name: str, ir_type: str, table: dict) -> Bound:
 
 def _value(where: str, ir_type: str, value: object) -> int:
     match ir_type, value:
-        case "money", str() if _POUNDS.fullmatch(value):
-            return int(Fraction(value) * 100)
+        case "money", str():
+            try:
+                return units.pence(value)
+            except ValueError:
+                pass
         case "date", date() if not isinstance(value, datetime):
-            return (value - EPOCH).days
+            return units.days(value)
         case "integer", int() if not isinstance(value, bool):
             return value
     raise BoundsError(f"{where}: {value!r} is not a valid {ir_type} bound")

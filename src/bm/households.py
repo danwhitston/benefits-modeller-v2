@@ -26,14 +26,13 @@ import random
 from datetime import date
 from pathlib import Path
 
-from bm import evaluate, ir, solvers, translate
+from bm import evaluate, ir, solvers, translate, units
 from bm.bounds import Bound
 from bm.coverage import declarations
 from bm.translate import SmtModule, apply, literal, quote
 
 ROOT = Path(__file__).resolve().parents[2]
 UC_IR = ROOT / "build" / "uc.bm-ir.json"
-EPOCH = date(1970, 1, 1)
 AWARD = "bm.award"
 
 # The test scopes of rules/uc_tests.catala_en all start on this date.
@@ -62,7 +61,7 @@ class NoLastPenny(RuntimeError):
 
 def _household(start: date, earned: int, aged_25: bool, lcw: bool) -> dict[str, int | bool]:
     return {
-        "assessment_period_start": int((start - EPOCH).days),
+        "assessment_period_start": units.days(start),
         "earned_income": int(earned),
         "aged_25_or_over": bool(aged_25),
         "has_lcw": bool(lcw),
@@ -91,7 +90,7 @@ def last_penny_earnings(
     sorts = {v.name: translate.SORTS[v.type] for v in module.inputs}
     args = [quote(name) for name in sorts]
     fixed = {
-        "assessment_period_start": int((start - EPOCH).days),
+        "assessment_period_start": units.days(start),
         "aged_25_or_over": bool(aged_25_or_over),
         "has_lcw": bool(has_lcw),
     }
