@@ -17,10 +17,10 @@ Simplifications, stated so that nobody reads more into the rules than is there:
 * The LCWRA element, the child element and every other element are left out.
   The maximum amount is the standard allowance alone.
 * Unearned income is not modelled.
-* `earned_income` is Universal Credit earned income as regulation 55 defines
-  it, not gross pay: employed earnings after deducting income tax, primary
-  Class 1 National Insurance contributions, relievable pension contributions
-  and payroll giving
+* `earned_income` is employed earnings as regulation 55 defines them, not
+  gross pay: earnings after deducting income tax, primary Class 1 National
+  Insurance contributions, relievable pension contributions and payroll
+  giving
   ([regulation 55(5)](https://www.legislation.gov.uk/uksi/2013/376/regulation/55),
   checked 29 October 2026).
 
@@ -81,8 +81,8 @@ Regulation 22(2) gives the amount of the work allowance. The higher amount is
 the one substituted by [S.I. 2026/148](https://www.legislation.gov.uk/uksi/2026/148)
 in the version of the regulation dated 6 April 2026.
 
-Single claimant who "has limited capability for work": £710.00, in the
-higher work allowance column
+Single claimant who "has limited capability for work": £710.00, under the
+higher work allowance heading
 ([regulation 22](https://www.legislation.gov.uk/uksi/2013/376/regulation/22),
 checked 29 October 2026)
 

@@ -15,10 +15,10 @@ Record what worked and what got in the way here as the project goes:
 - Worked: per-task reviewers caught defects that the implementers' own tests passed. Examples: a guard in the marginal-rate query that no test could fail, an optimiser check that turned proven optima into "unknown", a random sample that reached the taper in 3 of 50 households, and provenance that could name the wrong Catala version.
 - Worked: the whole-branch reviewer caught public-text problems that had got through the per-task reviews: a spliced regulation quote (a task reviewer had flagged it, but as a deferred minor) and a false statement that PolicyEngine UK rounds the award.
 - Worked: the exact-match differential test against PolicyEngine UK surfaced a real question of interpretation (at which stage regulation 6 rounds), now logged in `docs/mismatches.md`.
-- Got in the way: the plan assumed some tool details that turned out wrong (for example typed comparison operator names that Catala 1.3.0 does not have). The controller resolved each with a recorded ruling, but the plan should be checked against the installed tools before execution.
+- Got in the way: the plan assumed some tool details that turned out wrong (for example typed comparison operator names that Catala 1.3.0 does not have). Each was resolved with a ruling recorded during execution, and the rulings that changed behaviour are reflected in the docs and code. The plan should still be checked against the installed tools before execution.
 - Got in the way: subagents in their own git worktrees could not write to the shared workspace, so their reports had to be copied by hand.
 - Got in the way: running two implementers in one checkout at once led to one agent's `git stash` sweeping up the other's uncommitted edits. Nothing was lost. Give concurrent implementers separate worktrees, and never use `git stash` in a shared checkout.
-- Cost: most tasks needed one fix round after review, so each task cost an implementer, a reviewer and a re-reviewer.
+- Cost: most tasks needed one fix round after review, which typically meant an implementer, a reviewer and a scoped re-reviewer per task.
 
 ## Project notes
 

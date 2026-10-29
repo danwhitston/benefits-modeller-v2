@@ -25,8 +25,9 @@ error, deliberate difference, or interpretation difference.
 | Award | £424.84 | £424.84 | £424.85 |
 
 PolicyEngine UK does not round the award. It returns an annual float, here
-£424.845 a month to within float precision. The check rounds that figure once, to the nearest penny with halves rounded up
-(`bm.policyengine._to_pence`), which is reading (b) below.
+£424.845 a month to within float precision. The check rounds that figure
+once, to the nearest penny with halves rounded up (`bm.policyengine._to_pence`),
+which is reading (b) below.
 
 Arithmetic. Earnings above the £710.00 work allowance are £0.10, and 55% of
 that is 5.5p. Three readings are on record:
