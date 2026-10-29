@@ -6,7 +6,7 @@ Early stage. The first milestone runs end to end for a thin slice of Universal C
 
 ## Running it
 
-Tool versions below were current on 29 October 2026: Catala 1.3.0 on OCaml 5.3.0, and Python 3.14.
+The versions used and tested on 29 October 2026 are Catala 1.3.0 on OCaml 5.3.0, and Python 3.14.
 
 1. Install opam and the libraries Catala needs.
    - Mac: `brew install opam gmp pkgconf ninja`
@@ -19,11 +19,11 @@ Tool versions below were current on 29 October 2026: Catala 1.3.0 on OCaml 5.3.0
    ```
 3. Install the Python dependencies with [uv](https://docs.astral.sh/uv/): `uv sync`
 4. Build the rules and run the tests: `make build test`
-5. Print the report: `uv run bm report build/uc.bm-ir.json --bounds rules/uc.inputs.toml`
+5. Print the report: `uv run bm report build/uc.bm-ir.json --bounds rules/uc.inputs.toml`. This needs `build/uc.bm-ir.json`, which `make export` writes and `make test` runs first. At the default 50 random households it takes about 3 minutes.
 
 The report gives the peak marginal rate with an example household, whether Catala can stop with an error for any household in the bounds, the number of mismatches between Catala, Z3 and PolicyEngine UK, and the versions and rules commit that produced it. Add `--json` for the same content as data. `bm --help` lists the other commands, and `make check` runs the differential check alone.
 
-The report exits with 0 when all is well, 1 on a failure or an unexplained mismatch, and 2 when a solver result is unknown, for example after a timeout. Mismatches that fit a known class of 1p differences are counted and listed, and do not fail the run. GitHub Actions runs the build, tests and check on pull requests (`.github/workflows/ci.yml`).
+The report refuses to run (exit 1) if the exported file was made by a different Catala version, or if a rules file has changed since the export; run `make export` again. It exits with 0 when all is well, 1 on a failure or an unexplained mismatch, and 2 when a solver result is unknown, for example after a timeout. A failure (1) outranks unknown (2). Mismatches that fit a known class of 1p differences are counted and listed, and do not fail the run. A GitHub Actions workflow for the build, tests and check on pull requests is configured in `.github/workflows/ci.yml`. As of 29 October 2026 it has not yet run on GitHub.
 
 ## Use of AI
 

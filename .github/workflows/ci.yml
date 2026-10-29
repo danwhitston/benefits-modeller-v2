@@ -5,7 +5,14 @@ name: CI
 
 on:
   pull_request:
+  # Pushes to main seed the opam cache: a pull request can restore caches from
+  # main but not from other pull requests' branches.
+  push:
+    branches: [main]
   workflow_dispatch:
+
+permissions:
+  contents: read
 
 env:
   # Keep in step with the versions the Makefile and docs/bm-ir.md name.
@@ -17,7 +24,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # Python 3.14 comes from uv, at the version in .python-version
       # (pyproject.toml needs >=3.14, which the runner image may not have).
@@ -25,7 +32,9 @@ jobs:
         id: python
         run: echo "version=$(cat .python-version)" >> "$GITHUB_OUTPUT"
 
-      - uses: astral-sh/setup-uv@v6
+      # setup-uv publishes no floating major tag (there is no v10), so this is
+      # pinned to the newest v10 release.
+      - uses: astral-sh/setup-uv@v10.3.3
         with:
           python-version: ${{ steps.python.outputs.version }}
           enable-cache: true
@@ -36,16 +45,23 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y opam libgmp-dev pkg-config ninja-build
 
+      - name: Name the runner image for the cache key
+        id: image
+        run: echo "name=${ImageOS}-${RUNNER_ARCH}" >> "$GITHUB_OUTPUT"
+
       # A local switch is only known to the opam root that created it, so the
-      # root (~/.opam) is cached with _opam.
-      - name: Cache the opam switch
+      # root (~/.opam) is cached with _opam. The key names the image (ImageOS,
+      # for example ubuntu24) and architecture because the compiled switch
+      # depends on both. The cache is saved straight after the install, so a
+      # failure in a later step does not lose it.
+      - name: Restore the opam switch
         id: opam-cache
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v6
         with:
           path: |
             _opam
             ~/.opam
-          key: opam-${{ runner.os }}-catala-${{ env.CATALA_VERSION }}-ocaml-${{ env.OCAML_VERSION }}
+          key: opam-${{ steps.image.outputs.name }}-catala-${{ env.CATALA_VERSION }}-ocaml-${{ env.OCAML_VERSION }}
 
       - name: Create the opam switch with Catala
         if: steps.opam-cache.outputs.cache-hit != 'true'
@@ -53,6 +69,15 @@ jobs:
           opam init --bare --no-setup --disable-sandboxing -y
           opam switch create . "ocaml-base-compiler.${OCAML_VERSION}" -y
           opam install "catala.${CATALA_VERSION}" -y
+
+      - name: Save the opam switch
+        if: steps.opam-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: |
+            _opam
+            ~/.opam
+          key: ${{ steps.opam-cache.outputs.cache-primary-key }}
 
       - name: Check the toolchain
         run: |

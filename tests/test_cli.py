@@ -1,6 +1,7 @@
 """The `bm` command line, the report and the provenance block."""
 
 import json
+import os
 import subprocess
 from dataclasses import dataclass
 from fractions import Fraction
@@ -70,6 +71,44 @@ def test_provenance_tool_versions():
     assert p.z3_version and p.cvc5_version
 
 
+def write_ir(path: Path, catala_version: str) -> Path:
+    data = json.loads(Path(UC_IR).read_text())
+    data["catala_version"] = catala_version
+    path.write_text(json.dumps(data))
+    return path
+
+
+def test_provenance_records_the_ir_version():
+    p = provenance.collect(ROOT / "rules", Path(UC_IR))
+    assert p.ir_catala_version == p.catala_version == "1.3.0"
+
+
+def test_provenance_rejects_an_ir_from_another_catala(tmp_path: Path):
+    old = write_ir(tmp_path / "old.bm-ir.json", "1.2.0")
+    with pytest.raises(provenance.ProvenanceError, match="1.2.0.*1.3.0.*make export"):
+        provenance.collect(ROOT / "rules", old)
+
+
+def test_provenance_rejects_rules_newer_than_the_ir(tmp_path: Path):
+    rules = tmp_path / "rules"
+    rules.mkdir()
+    (rules / "uc.catala_en").write_text("rules\n")
+    ir_file = write_ir(tmp_path / "uc.bm-ir.json", "1.3.0")
+    os.utime(ir_file, (1_000_000, 1_000_000))
+    os.utime(rules / "uc.catala_en", (2_000_000, 2_000_000))
+    git(tmp_path, "init", "-q")
+    with pytest.raises(provenance.ProvenanceError, match="changed after.*make export"):
+        provenance.collect(rules, ir_file)
+    os.utime(rules / "uc.catala_en", (500_000, 500_000))
+    assert provenance.collect(rules, ir_file).rules_dirty is True  # untracked, but not stale
+
+
+def test_report_with_a_mismatched_ir_fails_before_the_slow_checks(tmp_path: Path, capsys):
+    old = write_ir(tmp_path / "old.bm-ir.json", "1.2.0")
+    assert cli.main(["report", str(old), "--bounds", UC_BOUNDS, "--n-random", "1"]) == 1
+    assert "make export" in capsys.readouterr().err
+
+
 def test_translate_writes_smt2(tmp_path: Path, capsys):
     out = tmp_path / "uc.smt2"
     assert cli.main(["translate", UC_IR, "-o", str(out)]) == 0
@@ -135,7 +174,7 @@ def make_report(
 ) -> report.Report:
     emr = EmrResult(status, rate, 55, HOUSEHOLD, 57, 2, {"z3": "1", "cvc5": "2"})
     d = report.Differential(5, 1, list(explained), list(unexplained))
-    p = provenance.Provenance("abc123", True, "1.3.0", "1", "2")
+    p = provenance.Provenance("abc123", True, "1.3.0", "1.3.0", "1", "2")
     return report.Report("UC", INPUTS, "earned_income", 100, emr, list(coverage), d, p)
 
 
@@ -170,6 +209,7 @@ def test_text_report_contents():
     assert "docs/mismatches.md" in text
     assert "award catala £0.57, z3 £0.57, policyengine £0.58" in text
     assert "abc123 (uncommitted changes)" in text
+    assert "1.3.0 (the IR was exported with 1.3.0)" in text
 
 
 def test_percent_is_exact_where_possible():
@@ -189,7 +229,7 @@ def test_json_report_keys_and_exact_rate():
 
 def test_report_json_shape(capsys):
     code = cli.main(["report", UC_IR, "--bounds", UC_BOUNDS, "--json", "--n-random", "5"])
-    assert code in (0, 1)  # the exit code depends on the differential check's outcome
+    assert code == 0  # every mismatch must be explained by the rounding predicate
     data = json.loads(capsys.readouterr().out)
     assert {"emr", "coverage", "mismatches", "provenance"} <= set(data)
     assert data["emr"]["rate"] == "11/20"
@@ -197,7 +237,8 @@ def test_report_json_shape(capsys):
     m = data["mismatches"]
     assert m["total"] == len(m["explained"]) + len(m["unexplained"])
     assert set(data["provenance"]) == {
-        "rules_commit", "rules_dirty", "catala_version", "z3_version", "cvc5_version",
+        "rules_commit", "rules_dirty", "catala_version", "ir_catala_version",
+        "z3_version", "cvc5_version",
     }
 
 

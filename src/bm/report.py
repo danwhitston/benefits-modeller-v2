@@ -92,6 +92,8 @@ def build(
     delta: int = 100,
     timeout_ms: int = 60_000,
 ) -> Report:
+    # First, so that an IR that does not match the rules fails before the slow checks.
+    prov = provenance.collect(rules, ir_path)
     scope = ir.load(ir_path)
     module = translate.translate(scope)
     bounds = bounds_mod.load(bounds_path, scope)
@@ -103,7 +105,7 @@ def build(
         emr=queries.emr(module, bounds, delta=delta, timeout_ms=timeout_ms),
         coverage=coverage.check(module, bounds, timeout_ms=timeout_ms),
         differential=differential(module, bounds, n_random, seed),
-        provenance=provenance.collect(rules),
+        provenance=prov,
     )
 
 
@@ -158,7 +160,7 @@ def emr_text(emr: EmrResult, inputs: list[Var], earnings_input: str, delta: int)
         return out
     label = percent(emr.rate)
     if emr.status == "unknown":
-        label += ", unknown whether it is the peak (cvc5 ran out of time)"
+        label += ", unknown whether it is the peak (cvc5 could not settle it)"
     out.append(f"  {label}")
     out.append(
         f"  A rise of {money(delta)} in {earnings_input} takes the award from "
@@ -208,7 +210,7 @@ def _provenance_text(r: Report) -> list[str]:
     return [
         "Provenance",
         f"  rules commit  {p.rules_commit} ({state})",
-        f"  catala        {p.catala_version}",
+        f"  catala        {p.catala_version} (the IR was exported with {p.ir_catala_version})",
         f"  z3            {p.z3_version}",
         f"  cvc5          {p.cvc5_version}",
     ]
