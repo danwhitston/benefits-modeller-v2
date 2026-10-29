@@ -66,8 +66,9 @@ contains the assessment period start (the year before when the start is before
 Monthly figure. PolicyEngine annualises its monthly parameters by multiplying by
 12 (`MONTHS_IN_YEAR`) in `standard_allowance/uc_standard_allowance.py` and
 `work_allowance/uc_work_allowance.py`. We therefore give it 12 times the monthly
-earned income and divide the annual award it returns by 12. The reduction rate
-is a rate, so it is not scaled.
+earned income and 12 times the monthly housing costs element, and divide the
+annual award it returns by 12. The reduction rate is a rate, so it is not
+scaled.
 
 Parameters for 2026/27, as PolicyEngine holds them:
 
