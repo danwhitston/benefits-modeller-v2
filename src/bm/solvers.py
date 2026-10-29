@@ -10,6 +10,9 @@ checksum for it.
 Z3 uses `Solver` and `parse_smt2_string`, or `Optimize` when the script holds
 Z3-specific commands such as `(maximize ...)`. cvc5 is never sent those.
 
+`optimise_and_confirm` is the one routine for an optimum: Z3 finds it and cvc5
+confirms that nothing better exists.
+
 A timeout gives status "unknown". So does a Z3 optimisation that answers sat
 without proving the objective optimal, because that model is not a result.
 Anything else that goes wrong, such as a script that does not parse, raises
@@ -59,6 +62,72 @@ class SolverDisagreement(Exception):
         self.context = context
         text = f"z3 says {z3_result.status} but cvc5 says {cvc5_result.status}"
         super().__init__(f"{context}: {text}" if context else text)
+
+
+@dataclass(frozen=True)
+class Optimum:
+    """The outcome of `optimise_and_confirm`.
+
+    `value` and `model` are Z3's optimum, and are kept when only cvc5 could not
+    confirm it (`status` "unknown", `confirmed` False). They are None when Z3
+    found nothing, whether the script is infeasible or Z3 ran out of time.
+    """
+
+    status: Literal["optimal", "unknown", "infeasible"]
+    value: int | None
+    model: Model | None
+    versions: dict[str, str]
+    confirmed: bool
+
+
+OBJECTIVE = "bm.objective"
+
+
+def optimise_and_confirm(
+    lines: list[str],
+    objective: str,
+    direction: Literal["max", "min"],
+    timeout_ms: int,
+    context: str = "",
+) -> Optimum:
+    """Z3 optimises the SMT-LIB term `objective`; cvc5 confirms nothing is better.
+
+    `lines` are the script's commands without `(check-sat)`; the list is not
+    changed. The objective is declared as `|bm.objective|`, so its value is
+    read from the model. Z3 maximises or minimises it, and cvc5 is then asked
+    for a value above the maximum (or below the minimum) within the same lines.
+
+    Raises `SolverDisagreement`, carrying `context`, if cvc5 finds one. If Z3
+    is unsat the status is "infeasible", and if Z3 or cvc5 is unknown the
+    status is "unknown". Neither is ever read as an optimum.
+    """
+    if direction not in ("max", "min"):
+        raise ValueError(f"direction must be 'max' or 'min', not {direction!r}")
+    name = f"|{OBJECTIVE}|"
+    base = [*lines, f"(declare-const {name} Int)", f"(assert (= {name} {objective}))"]
+    command = "maximize" if direction == "max" else "minimize"
+    z3_script = "\n".join([*base, f"({command} {name})", "(check-sat)"]) + "\n"
+    z3_result = run("z3", z3_script, timeout_ms)
+    if z3_result.status != "sat":
+        status = "infeasible" if z3_result.status == "unsat" else "unknown"
+        # cvc5 does not run, so its version is read from the package.
+        return Optimum(status, None, None, versions(), False)
+    value = z3_result.model[OBJECTIVE]
+
+    better = ">" if direction == "max" else "<"
+    literal = str(value) if value >= 0 else f"(- {-value})"
+    confirm = "\n".join([*base, f"(assert ({better} {name} {literal}))", "(check-sat)"]) + "\n"
+    cvc5_result = run("cvc5", confirm, timeout_ms)
+    if cvc5_result.status == "sat":
+        what = f"cvc5 finds an objective {'above' if direction == 'max' else 'below'} {value}"
+        raise SolverDisagreement(z3_result, cvc5_result, f"{context}: {what}" if context else what)
+    return Optimum(
+        "optimal" if cvc5_result.status == "unsat" else "unknown",
+        value,
+        z3_result.model,
+        {"z3": z3_result.version, "cvc5": cvc5_result.version},
+        cvc5_result.status == "unsat",
+    )
 
 
 def versions() -> dict[str, str]:

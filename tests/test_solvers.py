@@ -146,3 +146,80 @@ def test_disagreement_carries_both_results():
     error = solvers.SolverDisagreement(a, b)
     assert error.z3 is a and error.cvc5 is b
     assert "sat" in str(error) and "unsat" in str(error)
+
+
+BOX = ["(declare-const x Int)", "(assert (<= 0 x 7))"]
+
+
+def _cvc5_answers(monkeypatch, status):
+    """Make cvc5 answer `status` to everything; Z3 still runs for real."""
+    real = solvers.run
+
+    def run(solver, script, timeout_ms):
+        if solver == "cvc5":
+            return solvers.SolverResult(status, {"x": 8} if status == "sat" else None, "cvc5 fake")
+        return real(solver, script, timeout_ms)
+
+    monkeypatch.setattr(solvers, "run", run)
+
+
+def test_optimise_max():
+    result = solvers.optimise_and_confirm(BOX, "x", "max", 10_000)
+    assert result.status == "optimal"
+    assert result.value == 7
+    assert result.model["x"] == 7
+    assert result.confirmed is True
+    assert set(result.versions) == {"z3", "cvc5"}
+
+
+def test_optimise_min():
+    result = solvers.optimise_and_confirm(BOX, "x", "min", 10_000)
+    assert result.status == "optimal"
+    assert result.value == 0
+    assert result.confirmed is True
+
+
+def test_optimise_does_not_change_the_callers_lines():
+    lines = list(BOX)
+    solvers.optimise_and_confirm(lines, "x", "max", 10_000)
+    assert lines == BOX
+
+
+def test_optimise_objective_may_be_a_term():
+    result = solvers.optimise_and_confirm(BOX, "(- 10 x)", "max", 10_000)
+    assert result.value == 10
+    assert result.model["x"] == 0
+
+
+def test_optimise_infeasible():
+    lines = [*BOX, "(assert (> x 3))", "(assert (< x 2))"]
+    result = solvers.optimise_and_confirm(lines, "x", "max", 10_000)
+    assert result.status == "infeasible"
+    assert result.value is None and result.model is None
+    assert result.confirmed is False
+    assert set(result.versions) == {"z3", "cvc5"}
+
+
+def test_optimise_z3_unknown():
+    lines = HARD.replace("(check-sat)\n", "").strip().splitlines()
+    result = solvers.optimise_and_confirm(lines, "x", "max", 1)
+    assert result.status == "unknown"
+    assert result.value is None and result.model is None
+    assert result.confirmed is False
+    assert set(result.versions) == {"z3", "cvc5"}
+
+
+def test_optimise_disagreement(monkeypatch):
+    _cvc5_answers(monkeypatch, "sat")
+    with pytest.raises(solvers.SolverDisagreement, match="a widget"):
+        solvers.optimise_and_confirm(BOX, "x", "max", 10_000, context="a widget")
+
+
+def test_optimise_cvc5_unknown_keeps_z3(monkeypatch):
+    _cvc5_answers(monkeypatch, "unknown")
+    result = solvers.optimise_and_confirm(BOX, "x", "max", 10_000)
+    assert result.status == "unknown"
+    assert result.value == 7
+    assert result.model["x"] == 7
+    assert result.confirmed is False
+    assert result.versions["cvc5"] == "cvc5 fake"

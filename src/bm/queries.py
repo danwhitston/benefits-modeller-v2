@@ -99,31 +99,25 @@ def emr(
         script.declare(name, "Int", household.output(output))
     fall = f"(- {quote(AT_E)} {quote(AT_E_PLUS_DELTA)})"
 
-    z3_result = solvers.run("z3", script.text(f"(maximize {fall})"), timeout_ms)
-    if z3_result.status == "unknown":
-        return _unknown()
-    if z3_result.status == "unsat":
+    optimum = solvers.optimise_and_confirm(
+        script.lines, fall, "max", timeout_ms, f"a fall in {output} larger than Z3's maximum"
+    )
+    if optimum.status == "infeasible":
         raise NoHousehold(
             "no household in the bounds has a value at both e and e + delta;"
             " run the coverage check"
         )
-    model = z3_result.model
-    award_at_e, award_at_e_plus = model[AT_E], model[AT_E_PLUS_DELTA]
-    drop = award_at_e - award_at_e_plus
-
-    confirm = script.text(f"(assert (> {fall} {literal('Int', drop)}))")
-    cvc5_result = solvers.run("cvc5", confirm, timeout_ms)
-    if cvc5_result.status == "sat":
-        raise solvers.SolverDisagreement(
-            z3_result, cvc5_result, f"cvc5 finds a fall in {output} larger than {drop}"
-        )
-    # If cvc5 cannot settle it, Z3's maximum stands unconfirmed.
+    if optimum.value is None:
+        return _unknown()
+    model = optimum.model
+    drop = optimum.value
+    # If cvc5 could not settle it, Z3's maximum stands unconfirmed.
     return EmrResult(
-        status="found" if cvc5_result.status == "unsat" else "unknown",
+        status="found" if optimum.confirmed else "unknown",
         rate=Fraction(drop, delta),
         drop=drop,
         household=at_e.household(model),
-        award_at_e=award_at_e,
-        award_at_e_plus_delta=award_at_e_plus,
-        solver_versions={"z3": z3_result.version, "cvc5": cvc5_result.version},
+        award_at_e=model[AT_E],
+        award_at_e_plus_delta=model[AT_E_PLUS_DELTA],
+        solver_versions=optimum.versions,
     )

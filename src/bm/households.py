@@ -29,7 +29,7 @@ from pathlib import Path
 from bm import evaluate, ir, solvers, translate, units
 from bm.household import Script
 from bm.inputs import Bound
-from bm.translate import SmtModule, literal
+from bm.translate import SmtModule
 
 ROOT = Path(__file__).resolve().parents[2]
 UC_IR = ROOT / "build" / "uc.bm-ir.json"
@@ -98,22 +98,15 @@ def last_penny_earnings(
     script.add(f"(assert (= {award} 0))")
     earned = household.inputs["earned_income"]
 
-    z3_result = solvers.run("z3", script.text(f"(minimize {earned})"), timeout_ms)
-    if z3_result.status != "sat":
+    optimum = solvers.optimise_and_confirm(
+        script.lines, earned, "min", timeout_ms, f"an award of 0 at {fixed}"
+    )
+    if optimum.status != "optimal":
         raise NoLastPenny(
-            f"z3 says {z3_result.status} for an award of 0 at {fixed}; expected a household"
+            f"{optimum.status} for the smallest earnings with an award of 0 at {fixed};"
+            " expected a household confirmed by both solvers"
         )
-    found = int(household.household(z3_result.model)["earned_income"])
-
-    smaller = f"(assert (< {earned} {literal('Int', found)}))"
-    cvc5_result = solvers.run("cvc5", script.text(smaller), timeout_ms)
-    if cvc5_result.status == "sat":
-        raise solvers.SolverDisagreement(
-            z3_result, cvc5_result, f"cvc5 finds an award of 0 below earnings of {found} at {fixed}"
-        )
-    if cvc5_result.status == "unknown":
-        raise NoLastPenny(f"cvc5 could not confirm {found} as the smallest at {fixed}")
-    return found
+    return int(optimum.value)
 
 
 def generate(
