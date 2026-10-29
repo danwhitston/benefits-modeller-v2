@@ -1,4 +1,4 @@
-# Fixture: an input that is also an output, which bm-ir v0 does not support
+# Fixture: an input that is also an output, which bm-ir does not support
 
 ```catala
 declaration scope InputOutput:

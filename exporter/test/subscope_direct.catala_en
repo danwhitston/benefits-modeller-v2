@@ -1,0 +1,17 @@
+# Fixture: a direct scope call inside an expression, which bm-ir does not support
+
+```catala
+declaration scope Inner:
+  input x content money
+  output y content money
+
+scope Inner:
+  definition y equals x * 2.0
+
+declaration scope Direct:
+  input a content money
+  output y content money
+
+scope Direct:
+  definition y equals (output of Inner with { -- x: a }).y
+```

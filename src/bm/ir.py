@@ -1,4 +1,4 @@
-"""Loader for bm-ir v0, the JSON form of a Catala scope (see docs/bm-ir.md)."""
+"""Loader for bm-ir v1, the JSON form of a Catala scope (see docs/bm-ir.md)."""
 
 import json
 import re
@@ -7,7 +7,7 @@ from datetime import date
 from fractions import Fraction
 from pathlib import Path
 
-IR_VERSION = 0
+IR_VERSION = 1
 TYPES = ("money", "decimal", "integer", "bool", "date")
 
 
@@ -116,7 +116,7 @@ def load(path: Path) -> Scope:
 
 def parse(data: dict) -> Scope:
     version = data.get("bm_ir_version")
-    # `False == 0` and `0.0 == 0` in Python, so the type is checked as well.
+    # `True == 1` and `1.0 == 1` in Python, so the type is checked as well.
     if type(version) is not int or version != IR_VERSION:
         raise UnsupportedIrVersion(
             f"bm_ir_version {version!r} is not supported (expected {IR_VERSION})"

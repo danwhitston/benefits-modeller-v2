@@ -1,0 +1,741 @@
+{
+  "bm_ir_version": 1,
+  "catala_version": "1.3.0",
+  "scope": "Top",
+  "inputs": [
+    {
+      "name": "a",
+      "type": "money"
+    }
+  ],
+  "outputs": [
+    "total"
+  ],
+  "definitions": [
+    {
+      "name": "m1.b",
+      "type": "money",
+      "expr": {
+        "k": "error_on_empty",
+        "pos": {
+          "file": "subscope.catala_en",
+          "line": 27
+        },
+        "arg": {
+          "k": "default",
+          "pos": {
+            "file": "subscope.catala_en",
+            "line": 27
+          },
+          "exceptions": [
+            {
+              "k": "default",
+              "pos": {
+                "file": "subscope.catala_en",
+                "line": 27
+              },
+              "exceptions": [],
+              "just": {
+                "k": "lit",
+                "type": "bool",
+                "value": "true",
+                "pos": {
+                  "file": "subscope.catala_en",
+                  "line": 27
+                }
+              },
+              "cons": {
+                "k": "pure",
+                "pos": {
+                  "file": "subscope.catala_en",
+                  "line": 27
+                },
+                "arg": {
+                  "k": "var",
+                  "name": "a",
+                  "pos": {
+                    "file": "subscope.catala_en",
+                    "line": 27
+                  }
+                }
+              }
+            }
+          ],
+          "just": {
+            "k": "lit",
+            "type": "bool",
+            "value": "false",
+            "pos": {
+              "file": "subscope.catala_en",
+              "line": 27
+            }
+          },
+          "cons": {
+            "k": "empty",
+            "pos": {
+              "file": "subscope.catala_en",
+              "line": 27
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "m1.i.x",
+      "type": "money",
+      "expr": {
+        "k": "error_on_empty",
+        "pos": {
+          "file": "subscope.catala_en",
+          "line": 17
+        },
+        "arg": {
+          "k": "default",
+          "pos": {
+            "file": "subscope.catala_en",
+            "line": 17
+          },
+          "exceptions": [
+            {
+              "k": "default",
+              "pos": {
+                "file": "subscope.catala_en",
+                "line": 17
+              },
+              "exceptions": [],
+              "just": {
+                "k": "lit",
+                "type": "bool",
+                "value": "true",
+                "pos": {
+                  "file": "subscope.catala_en",
+                  "line": 17
+                }
+              },
+              "cons": {
+                "k": "pure",
+                "pos": {
+                  "file": "subscope.catala_en",
+                  "line": 17
+                },
+                "arg": {
+                  "k": "var",
+                  "name": "m1.b",
+                  "pos": {
+                    "file": "subscope.catala_en",
+                    "line": 17
+                  }
+                }
+              }
+            }
+          ],
+          "just": {
+            "k": "lit",
+            "type": "bool",
+            "value": "false",
+            "pos": {
+              "file": "subscope.catala_en",
+              "line": 17
+            }
+          },
+          "cons": {
+            "k": "empty",
+            "pos": {
+              "file": "subscope.catala_en",
+              "line": 17
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "m1.i.y",
+      "type": "money",
+      "expr": {
+        "k": "error_on_empty",
+        "pos": {
+          "file": "subscope.catala_en",
+          "line": 6
+        },
+        "arg": {
+          "k": "default",
+          "pos": {
+            "file": "subscope.catala_en",
+            "line": 6
+          },
+          "exceptions": [
+            {
+              "k": "default",
+              "pos": {
+                "file": "subscope.catala_en",
+                "line": 9
+              },
+              "exceptions": [],
+              "just": {
+                "k": "lit",
+                "type": "bool",
+                "value": "true",
+                "pos": {
+                  "file": "subscope.catala_en",
+                  "line": 9
+                }
+              },
+              "cons": {
+                "k": "pure",
+                "pos": {
+                  "file": "subscope.catala_en",
+                  "line": 9
+                },
+                "arg": {
+                  "k": "op",
+                  "op": "Mult_mon_rat",
+                  "args": [
+                    {
+                      "k": "var",
+                      "name": "m1.i.x",
+                      "pos": {
+                        "file": "subscope.catala_en",
+                        "line": 9
+                      }
+                    },
+                    {
+                      "k": "lit",
+                      "type": "decimal",
+                      "value": "2/1",
+                      "pos": {
+                        "file": "subscope.catala_en",
+                        "line": 9
+                      }
+                    }
+                  ],
+                  "pos": {
+                    "file": "subscope.catala_en",
+                    "line": 9
+                  }
+                }
+              }
+            }
+          ],
+          "just": {
+            "k": "lit",
+            "type": "bool",
+            "value": "false",
+            "pos": {
+              "file": "subscope.catala_en",
+              "line": 6
+            }
+          },
+          "cons": {
+            "k": "empty",
+            "pos": {
+              "file": "subscope.catala_en",
+              "line": 6
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "m1.z",
+      "type": "money",
+      "expr": {
+        "k": "error_on_empty",
+        "pos": {
+          "file": "subscope.catala_en",
+          "line": 14
+        },
+        "arg": {
+          "k": "default",
+          "pos": {
+            "file": "subscope.catala_en",
+            "line": 14
+          },
+          "exceptions": [
+            {
+              "k": "default",
+              "pos": {
+                "file": "subscope.catala_en",
+                "line": 18
+              },
+              "exceptions": [],
+              "just": {
+                "k": "lit",
+                "type": "bool",
+                "value": "true",
+                "pos": {
+                  "file": "subscope.catala_en",
+                  "line": 18
+                }
+              },
+              "cons": {
+                "k": "pure",
+                "pos": {
+                  "file": "subscope.catala_en",
+                  "line": 18
+                },
+                "arg": {
+                  "k": "op",
+                  "op": "Add_mon_mon",
+                  "args": [
+                    {
+                      "k": "var",
+                      "name": "m1.i.y",
+                      "pos": {
+                        "file": "subscope.catala_en",
+                        "line": 18
+                      }
+                    },
+                    {
+                      "k": "lit",
+                      "type": "money",
+                      "value": "100",
+                      "pos": {
+                        "file": "subscope.catala_en",
+                        "line": 18
+                      }
+                    }
+                  ],
+                  "pos": {
+                    "file": "subscope.catala_en",
+                    "line": 18
+                  }
+                }
+              }
+            }
+          ],
+          "just": {
+            "k": "lit",
+            "type": "bool",
+            "value": "false",
+            "pos": {
+              "file": "subscope.catala_en",
+              "line": 14
+            }
+          },
+          "cons": {
+            "k": "empty",
+            "pos": {
+              "file": "subscope.catala_en",
+              "line": 14
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "m2.b",
+      "type": "money",
+      "expr": {
+        "k": "error_on_empty",
+        "pos": {
+          "file": "subscope.catala_en",
+          "line": 28
+        },
+        "arg": {
+          "k": "default",
+          "pos": {
+            "file": "subscope.catala_en",
+            "line": 28
+          },
+          "exceptions": [
+            {
+              "k": "default",
+              "pos": {
+                "file": "subscope.catala_en",
+                "line": 28
+              },
+              "exceptions": [],
+              "just": {
+                "k": "lit",
+                "type": "bool",
+                "value": "true",
+                "pos": {
+                  "file": "subscope.catala_en",
+                  "line": 28
+                }
+              },
+              "cons": {
+                "k": "pure",
+                "pos": {
+                  "file": "subscope.catala_en",
+                  "line": 28
+                },
+                "arg": {
+                  "k": "op",
+                  "op": "Mult_mon_rat",
+                  "args": [
+                    {
+                      "k": "var",
+                      "name": "a",
+                      "pos": {
+                        "file": "subscope.catala_en",
+                        "line": 28
+                      }
+                    },
+                    {
+                      "k": "lit",
+                      "type": "decimal",
+                      "value": "2/1",
+                      "pos": {
+                        "file": "subscope.catala_en",
+                        "line": 28
+                      }
+                    }
+                  ],
+                  "pos": {
+                    "file": "subscope.catala_en",
+                    "line": 28
+                  }
+                }
+              }
+            }
+          ],
+          "just": {
+            "k": "lit",
+            "type": "bool",
+            "value": "false",
+            "pos": {
+              "file": "subscope.catala_en",
+              "line": 28
+            }
+          },
+          "cons": {
+            "k": "empty",
+            "pos": {
+              "file": "subscope.catala_en",
+              "line": 28
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "m2.i.x",
+      "type": "money",
+      "expr": {
+        "k": "error_on_empty",
+        "pos": {
+          "file": "subscope.catala_en",
+          "line": 17
+        },
+        "arg": {
+          "k": "default",
+          "pos": {
+            "file": "subscope.catala_en",
+            "line": 17
+          },
+          "exceptions": [
+            {
+              "k": "default",
+              "pos": {
+                "file": "subscope.catala_en",
+                "line": 17
+              },
+              "exceptions": [],
+              "just": {
+                "k": "lit",
+                "type": "bool",
+                "value": "true",
+                "pos": {
+                  "file": "subscope.catala_en",
+                  "line": 17
+                }
+              },
+              "cons": {
+                "k": "pure",
+                "pos": {
+                  "file": "subscope.catala_en",
+                  "line": 17
+                },
+                "arg": {
+                  "k": "var",
+                  "name": "m2.b",
+                  "pos": {
+                    "file": "subscope.catala_en",
+                    "line": 17
+                  }
+                }
+              }
+            }
+          ],
+          "just": {
+            "k": "lit",
+            "type": "bool",
+            "value": "false",
+            "pos": {
+              "file": "subscope.catala_en",
+              "line": 17
+            }
+          },
+          "cons": {
+            "k": "empty",
+            "pos": {
+              "file": "subscope.catala_en",
+              "line": 17
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "m2.i.y",
+      "type": "money",
+      "expr": {
+        "k": "error_on_empty",
+        "pos": {
+          "file": "subscope.catala_en",
+          "line": 6
+        },
+        "arg": {
+          "k": "default",
+          "pos": {
+            "file": "subscope.catala_en",
+            "line": 6
+          },
+          "exceptions": [
+            {
+              "k": "default",
+              "pos": {
+                "file": "subscope.catala_en",
+                "line": 9
+              },
+              "exceptions": [],
+              "just": {
+                "k": "lit",
+                "type": "bool",
+                "value": "true",
+                "pos": {
+                  "file": "subscope.catala_en",
+                  "line": 9
+                }
+              },
+              "cons": {
+                "k": "pure",
+                "pos": {
+                  "file": "subscope.catala_en",
+                  "line": 9
+                },
+                "arg": {
+                  "k": "op",
+                  "op": "Mult_mon_rat",
+                  "args": [
+                    {
+                      "k": "var",
+                      "name": "m2.i.x",
+                      "pos": {
+                        "file": "subscope.catala_en",
+                        "line": 9
+                      }
+                    },
+                    {
+                      "k": "lit",
+                      "type": "decimal",
+                      "value": "2/1",
+                      "pos": {
+                        "file": "subscope.catala_en",
+                        "line": 9
+                      }
+                    }
+                  ],
+                  "pos": {
+                    "file": "subscope.catala_en",
+                    "line": 9
+                  }
+                }
+              }
+            }
+          ],
+          "just": {
+            "k": "lit",
+            "type": "bool",
+            "value": "false",
+            "pos": {
+              "file": "subscope.catala_en",
+              "line": 6
+            }
+          },
+          "cons": {
+            "k": "empty",
+            "pos": {
+              "file": "subscope.catala_en",
+              "line": 6
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "m2.z",
+      "type": "money",
+      "expr": {
+        "k": "error_on_empty",
+        "pos": {
+          "file": "subscope.catala_en",
+          "line": 14
+        },
+        "arg": {
+          "k": "default",
+          "pos": {
+            "file": "subscope.catala_en",
+            "line": 14
+          },
+          "exceptions": [
+            {
+              "k": "default",
+              "pos": {
+                "file": "subscope.catala_en",
+                "line": 18
+              },
+              "exceptions": [],
+              "just": {
+                "k": "lit",
+                "type": "bool",
+                "value": "true",
+                "pos": {
+                  "file": "subscope.catala_en",
+                  "line": 18
+                }
+              },
+              "cons": {
+                "k": "pure",
+                "pos": {
+                  "file": "subscope.catala_en",
+                  "line": 18
+                },
+                "arg": {
+                  "k": "op",
+                  "op": "Add_mon_mon",
+                  "args": [
+                    {
+                      "k": "var",
+                      "name": "m2.i.y",
+                      "pos": {
+                        "file": "subscope.catala_en",
+                        "line": 18
+                      }
+                    },
+                    {
+                      "k": "lit",
+                      "type": "money",
+                      "value": "100",
+                      "pos": {
+                        "file": "subscope.catala_en",
+                        "line": 18
+                      }
+                    }
+                  ],
+                  "pos": {
+                    "file": "subscope.catala_en",
+                    "line": 18
+                  }
+                }
+              }
+            }
+          ],
+          "just": {
+            "k": "lit",
+            "type": "bool",
+            "value": "false",
+            "pos": {
+              "file": "subscope.catala_en",
+              "line": 14
+            }
+          },
+          "cons": {
+            "k": "empty",
+            "pos": {
+              "file": "subscope.catala_en",
+              "line": 14
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "total",
+      "type": "money",
+      "expr": {
+        "k": "error_on_empty",
+        "pos": {
+          "file": "subscope.catala_en",
+          "line": 24
+        },
+        "arg": {
+          "k": "default",
+          "pos": {
+            "file": "subscope.catala_en",
+            "line": 24
+          },
+          "exceptions": [
+            {
+              "k": "default",
+              "pos": {
+                "file": "subscope.catala_en",
+                "line": 29
+              },
+              "exceptions": [],
+              "just": {
+                "k": "lit",
+                "type": "bool",
+                "value": "true",
+                "pos": {
+                  "file": "subscope.catala_en",
+                  "line": 29
+                }
+              },
+              "cons": {
+                "k": "pure",
+                "pos": {
+                  "file": "subscope.catala_en",
+                  "line": 29
+                },
+                "arg": {
+                  "k": "op",
+                  "op": "Add_mon_mon",
+                  "args": [
+                    {
+                      "k": "var",
+                      "name": "m1.z",
+                      "pos": {
+                        "file": "subscope.catala_en",
+                        "line": 29
+                      }
+                    },
+                    {
+                      "k": "var",
+                      "name": "m2.z",
+                      "pos": {
+                        "file": "subscope.catala_en",
+                        "line": 29
+                      }
+                    }
+                  ],
+                  "pos": {
+                    "file": "subscope.catala_en",
+                    "line": 29
+                  }
+                }
+              }
+            }
+          ],
+          "just": {
+            "k": "lit",
+            "type": "bool",
+            "value": "false",
+            "pos": {
+              "file": "subscope.catala_en",
+              "line": 24
+            }
+          },
+          "cons": {
+            "k": "empty",
+            "pos": {
+              "file": "subscope.catala_en",
+              "line": 24
+            }
+          }
+        }
+      }
+    }
+  ]
+}

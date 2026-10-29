@@ -9,17 +9,22 @@ ROOT = Path(__file__).resolve().parent.parent
 UC_IR = ROOT / "build" / "uc.bm-ir.json"
 
 
-def test_load_rejects_unknown_version(tmp_path):
+def test_ir_version_is_1():
+    assert ir.IR_VERSION == 1
+
+
+@pytest.mark.parametrize("version", [0, 2])
+def test_load_rejects_another_version(tmp_path, version):
     data = json.loads(UC_IR.read_text())
-    data["bm_ir_version"] = 1
-    path = tmp_path / "v1.bm-ir.json"
+    data["bm_ir_version"] = version
+    path = tmp_path / f"v{version}.bm-ir.json"
     path.write_text(json.dumps(data))
     with pytest.raises(ir.UnsupportedIrVersion):
         ir.load(path)
 
 
-@pytest.mark.parametrize("version", [False, 0.0, "0", None])
-def test_load_rejects_a_version_equal_to_0_but_not_the_integer(tmp_path, version):
+@pytest.mark.parametrize("version", [True, 1.0, "1", None])
+def test_load_rejects_a_version_equal_to_1_but_not_the_integer(tmp_path, version):
     data = json.loads(UC_IR.read_text())
     data["bm_ir_version"] = version
     path = tmp_path / "v.bm-ir.json"
