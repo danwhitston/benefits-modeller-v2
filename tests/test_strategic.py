@@ -12,6 +12,7 @@ from bm.household import Script, smt_sum
 from bm.strategic import (
     DEFAULT_START,
     RULES,
+    START,
     JudgementResult,
     NoHousehold,
     QueryRefused,
@@ -83,22 +84,35 @@ def test_check_choice():
             check_choice(SPECS, bad)
 
 
+BOUND = SPECS[START].bound
+
+
 def test_period_starts():
-    assert period_starts(date(2026, 4, 6), SPECS) == [date(2026, 4, 6), date(2026, 5, 6)]
+    assert period_starts(date(2026, 4, 6), BOUND) == [date(2026, 4, 6), date(2026, 5, 6)]
+
+
+def test_period_starts_three_periods_over_new_year():
+    assert period_starts(date(2026, 12, 15), BOUND, periods=3) == [
+        date(2026, 12, 15), date(2027, 1, 15), date(2027, 2, 15)]
+
+
+def test_period_starts_from_the_31st():
+    assert period_starts(date(2027, 1, 31), BOUND, periods=3) == [
+        date(2027, 1, 31), date(2027, 2, 28), date(2027, 3, 31)]
 
 
 def test_period_starts_from_the_31st_use_the_last_day_of_the_next_month():
-    assert period_starts(date(2027, 1, 31), SPECS) == [date(2027, 1, 31), date(2027, 2, 28)]
+    assert period_starts(date(2027, 1, 31), BOUND) == [date(2027, 1, 31), date(2027, 2, 28)]
 
 
 def test_period_starts_refuse_a_second_period_outside_the_bounds():
     with pytest.raises(QueryRefused, match="2027-04-10"):
-        period_starts(date(2027, 3, 10), SPECS)
+        period_starts(date(2027, 3, 10), BOUND)
 
 
 def test_period_starts_refuse_a_first_period_before_the_bounds():
     with pytest.raises(QueryRefused, match="2026-04-05"):
-        period_starts(date(2026, 4, 5), SPECS)
+        period_starts(date(2026, 4, 5), BOUND)
 
 
 def _money(text: str) -> int:
@@ -184,7 +198,7 @@ def test_timing_gain_never_negative():
     for _, status, gain in result.per_case:
         assert status == "optimal"
         assert gain >= result.gain
-    assert result.starts == [units.days(d) for d in period_starts(DEFAULT_START, SPECS)]
+    assert result.starts == [units.days(d) for d in period_starts(DEFAULT_START, BOUND)]
 
     # Two cases, two periods, a split and a baseline: eight households.
     assert len(result.witnesses) == 8
@@ -243,7 +257,7 @@ def _forall_script(
     for e in (e1, e2):
         script.bound(e, SPECS["earned_income"].bound)
     baseline = (literal("Int", total // 2), literal("Int", total - total // 2))
-    starts = [literal("Int", units.days(d)) for d in period_starts(DEFAULT_START, SPECS)]
+    starts = [literal("Int", units.days(d)) for d in period_starts(DEFAULT_START, BOUND)]
     j = quote("test.j")
     awards: dict[str, list[str]] = {"split": [], "baseline": []}
     above_nil = []

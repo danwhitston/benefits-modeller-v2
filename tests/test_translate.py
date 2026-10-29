@@ -67,7 +67,7 @@ def output(value):
 
 def document(inputs, definitions, outputs):
     return {
-        "bm_ir_version": 0,
+        "bm_ir_version": 1,
         "catala_version": "1.3.0",
         "scope": "Test",
         "inputs": [{"name": n, "type": t} for n, t in inputs],

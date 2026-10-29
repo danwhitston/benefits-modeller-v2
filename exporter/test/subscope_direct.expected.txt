@@ -1,0 +1,1 @@
+Unsupported construct EStructAccess at subscope_direct.catala_en:16

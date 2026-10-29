@@ -24,7 +24,9 @@ ends by pointing to docs/model-gaps.md.
 places (`500.00`), a date as `YYYY-MM-DD`, a Boolean as `true` or `false`.
 `--total` takes pounds in the same form. A bad name or value exits 1.
 `--rules` names the rules directory recorded in the provenance block and
-checked against the IR; it defaults to the directory of the inputs file.
+checked against the IR. Catala's interpreter runs the same rules, for the
+replay of a witness and for the differential check. It defaults to the
+directory of the inputs file.
 """
 
 import argparse
@@ -257,8 +259,9 @@ def _query_judgement(args: argparse.Namespace) -> int:
 
 
 def _check(args: argparse.Namespace) -> int:
+    rules = report.rules_file(_rules_dir(args))
     prov, module, bounds = _load(args)
-    d = report.differential(module, bounds, args.n_random, args.seed)
+    d = report.differential(module, bounds, args.n_random, args.seed, rules)
     _print_text([report.differential_text(d, module.inputs), report.provenance_text(prov)])
     return 1 if d.unexplained else 0
 

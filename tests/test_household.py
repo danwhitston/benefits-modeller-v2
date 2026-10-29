@@ -130,3 +130,15 @@ def test_unknown_inputs_refused():
         script.instance(fixed={"not_an_input": 1})
     with pytest.raises(ValueError, match="not_an_input"):
         script.instance("p2", equal={"not_an_input": "1"})
+
+
+def test_declare_refuses_a_module_function_name():
+    module, bounds = _loaded()
+    with pytest.raises(ValueError, match="award"):
+        Script(module, bounds).declare("award", "Int")
+
+
+def test_instance_refuses_fixed_and_equal_overlap():
+    module, bounds = _loaded()
+    with pytest.raises(ValueError, match="has_lcw"):
+        Script(module, bounds).instance(fixed={"has_lcw": True}, equal={"has_lcw": "true"})

@@ -81,14 +81,18 @@ class TranslatorBug(RuntimeError):
 
 
 def differential(
-    module: SmtModule, bounds: dict, n_random: int, seed: int
+    module: SmtModule, bounds: dict, n_random: int, seed: int, rules: Path | None = None
 ) -> Differential:
-    """Run the differential check. Imported here because it loads PolicyEngine UK."""
+    """Run the differential check. Imported here because it loads PolicyEngine UK.
+
+    `rules` is the rules file Catala runs, as `rules_file` returns it for the
+    `--rules` directory; by default the repository's own.
+    """
     from bm import checks, households
 
     generated = households.generate(bounds, n_random=n_random, seed=seed, module=module)
     try:
-        mismatches = checks.run(generated, module=module)
+        mismatches = checks.run(generated, module=module, rules=rules or checks.RULES)
     except checks.TranslatorDisagreement as error:
         raise TranslatorBug(str(error)) from error
     explained, unexplained = [], []
@@ -133,7 +137,7 @@ def build(
         delta=delta,
         emr=queries.emr(module, bounds, delta=delta, timeout_ms=timeout_ms),
         coverage=coverage.check(module, bounds, timeout_ms=timeout_ms),
-        differential=differential(module, bounds, n_random, seed),
+        differential=differential(module, bounds, n_random, seed, replay_rules),
         provenance=prov,
         specs=specs,
         timing=strategic.timing(module, specs, rules=replay_rules, timeout_ms=timeout_ms),

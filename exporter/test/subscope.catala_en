@@ -1,0 +1,30 @@
+# Fixture: sub-scope calls, nested two deep and called twice
+
+```catala
+declaration scope Inner:
+  input x content money
+  output y content money
+
+scope Inner:
+  definition y equals x * 2.0
+
+declaration scope Middle:
+  input b content money
+  i scope Inner
+  output z content money
+
+scope Middle:
+  definition i.x equals b
+  definition z equals i.y + $1
+
+declaration scope Top:
+  input a content money
+  m1 scope Middle
+  m2 scope Middle
+  output total content money
+
+scope Top:
+  definition m1.b equals a
+  definition m2.b equals a * 2.0
+  definition total equals m1.z + m2.z
+```

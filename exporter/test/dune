@@ -104,7 +104,19 @@
  (action
   (run %{exe:check.exe} json %{dep:internal.expected.json} %{dep:internal.out.json})))
 
-; A list literal is outside bm-ir v0: the export must fail and name the
+(rule
+ (deps ../plugin/bm_export.cmxs)
+ (action
+  (with-stdout-to
+   subscope.out.json
+   (run catala bm-export --plugin-dir ../plugin --no-stdlib -s Top %{dep:subscope.catala_en}))))
+
+(rule
+ (alias runtest)
+ (action
+  (run %{exe:check.exe} json %{dep:subscope.expected.json} %{dep:subscope.out.json})))
+
+; A list literal is outside bm-ir: the export must fail and name the
 ; construct and its line.
 
 (rule
@@ -137,3 +149,20 @@
  (alias runtest)
  (action
   (run %{exe:check.exe} contains %{dep:input_output.expected.txt} %{dep:input_output.out.txt})))
+
+; Only a sub-scope declared in the scope is inlined. A direct call to a scope
+; inside an expression stays unsupported: the export must fail.
+
+(rule
+ (deps ../plugin/bm_export.cmxs)
+ (action
+  (with-accepted-exit-codes
+   (not 0)
+   (with-outputs-to
+    subscope_direct.out.txt
+    (run catala bm-export --plugin-dir ../plugin --no-stdlib --color=never -s Direct %{dep:subscope_direct.catala_en})))))
+
+(rule
+ (alias runtest)
+ (action
+  (run %{exe:check.exe} contains %{dep:subscope_direct.expected.txt} %{dep:subscope_direct.out.txt})))

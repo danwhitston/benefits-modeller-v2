@@ -84,7 +84,7 @@ from typing import Literal
 
 from bm import catala_run, solvers, units
 from bm.household import Instance, Script, smt_sum
-from bm.inputs import InputSpec, bounds
+from bm.inputs import Bound, InputSpec, bounds
 from bm.translate import SmtModule, literal
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -168,10 +168,10 @@ def check_choice(specs: dict[str, InputSpec], choice: Split) -> None:
         raise QueryRefused(f"only two periods are supported, not {choice.periods}")
 
 
-def period_starts(first: date, specs: dict[str, InputSpec], periods: int = 2) -> list[date]:
+def period_starts(first: date, bound: Bound, periods: int = 2) -> list[date]:
     """The start of each period: the same day of the next month, or its last day.
 
-    Refuses if any start lies outside the bounds of `assessment_period_start`.
+    `bound` is the bound of the start input. Refuses if any start lies outside it.
     """
     starts = [first]
     for _ in range(periods - 1):
@@ -180,7 +180,6 @@ def period_starts(first: date, specs: dict[str, InputSpec], periods: int = 2) ->
         month = month_index + 1
         day = min(first.day, calendar.monthrange(year, month)[1])
         starts.append(date(year, month, day))
-    bound = specs["assessment_period_start"].bound
     for start in starts:
         if not bound.min <= units.days(start) <= bound.max:
             raise QueryRefused(
@@ -270,7 +269,7 @@ def timing(
             raise QueryRefused(f"{name} is set by the first period's start, not fixed")
     points = judgement_points(specs, fixed)
     all_cases = cases(specs, points, cap)
-    starts = [units.days(d) for d in period_starts(first_start, specs)]
+    starts = [units.days(d) for d in period_starts(first_start, specs[START].bound)]
 
     def optimise(numbered: list[tuple[int, dict[str, bool]]], what: str):
         script, households, gains = _script(module, specs, choice, fixed, total, starts, numbered)
@@ -521,7 +520,7 @@ def judgement_value(
         reason = "not an input" if point not in specs else "not controlled by the decision maker"
         raise QueryRefused(f"{point} is {reason}, so it is not a judgement point")
     cases(specs, [point])  # refuses a point that is not Boolean
-    (start_day,) = (units.days(d) for d in period_starts(start, specs, periods=1))
+    (start_day,) = (units.days(d) for d in period_starts(start, specs[START].bound, periods=1))
 
     script = Script(module, bounds(specs))
     facts = _facts(script, specs, fixed, {START, point})
