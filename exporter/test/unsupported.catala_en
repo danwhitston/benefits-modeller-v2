@@ -1,0 +1,9 @@
+# Fixture: a list literal, which bm-ir v0 does not support
+
+```catala
+declaration scope Unsupported:
+  output amounts content list of money
+
+scope Unsupported:
+  definition amounts equals [$1.00; $2.00]
+```

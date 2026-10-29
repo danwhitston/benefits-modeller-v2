@@ -1,0 +1,15 @@
+; The bm-export plugin for Catala 1.3.0. Catala loads the .cmxs at run time,
+; so the libraries below must be the ones already linked into the catala
+; executable from the same opam switch.
+
+(library
+ (name bm_export)
+ (modules bm_export)
+ (libraries
+  catala.driver
+  catala.dcalc
+  catala.shared_ast
+  catala.catala_utils
+  catala.runtime_ocaml
+  yojson
+  zarith))

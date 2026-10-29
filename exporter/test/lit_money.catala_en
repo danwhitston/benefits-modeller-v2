@@ -1,0 +1,9 @@
+# Fixture: money literal
+
+```catala
+declaration scope LitMoney:
+  output amount content money
+
+scope LitMoney:
+  definition amount equals $1.50
+```

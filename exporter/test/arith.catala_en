@@ -1,0 +1,18 @@
+# Fixture: arithmetic and comparison on money
+
+```catala
+declaration scope Arith:
+  input a content money
+  input b content money
+  input r content decimal
+  output total content money
+  output difference content money
+  output scaled content money
+  output smaller content boolean
+
+scope Arith:
+  definition total equals a + b
+  definition difference equals a - b
+  definition scaled equals a * r
+  definition smaller equals a < b
+```

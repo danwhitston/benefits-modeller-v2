@@ -116,11 +116,13 @@ The repository is public. Methods, models and findings about classes of input an
 
 ## Status of external tools (checked 28 October 2026)
 
-- **Catala:** the compiler is at 1.x (1.2.0 is the latest release found), maintained by the CatalaLang project. Check the state of the English syntax and of the intermediate representation's documentation before designing the translator.
+- **Catala:** the compiler is at 1.x, maintained by the CatalaLang project. Updated 29 October 2026: the latest release is 1.3.0 (1 October 2026), not 1.2.0. No intermediate representation is documented as stable, and the supported way to read one is an OCaml compiler plugin. See the [milestone 1 design](superpowers/specs/2026-10-29-walking-skeleton-design.md).
 - **PolicyEngine UK:** the Python model is actively maintained on PyPI. A Rust engine, [policyengine-uk-rust](https://policyengine.github.io/policyengine-uk-rust), with a Python wrapper (`policyengine-uk-compiled`), documents about 0.1 ms per household and covers Universal Credit, Child Benefit and other programmes. Decide which of the two to use as the oracle.
 - **Research context:** a June 2026 preprint, [arXiv:2606.23913](https://arxiv.org/abs/2606.23913), proposes LLM translation into a language that extends Catala, checked by a verification kernel that uses an SMT solver. Useful background; not read in full.
 
 ## Open questions for design
+
+Questions 1, 2, 3 and 7, and parts of 8 and 9, are answered for milestone 1 in the [walking skeleton design](superpowers/specs/2026-10-29-walking-skeleton-design.md) (29 October 2026). Question 6 is answered by the [quantifier tractability spike](spike-quantifier-tractability.md) (29 October 2026): at the first version's size (two periods) both forms are trivial for Z3 and cvc5, quantified queries degrade sharply with more free choices, and milestone 2 should expand judgement points into finite cases by default. Questions 4 and 5 stay open until milestone 2.
 
 1. Which artefacts come first: the Catala rules, or a minimal SMT translator for a handful of hand-written rules?
 2. Translate from which Catala intermediate representation, and how stable is it between releases?

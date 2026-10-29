@@ -1,0 +1,371 @@
+{
+  "bm_ir_version": 0,
+  "catala_version": "1.3.0",
+  "scope": "Arith",
+  "inputs": [
+    {
+      "name": "a",
+      "type": "money"
+    },
+    {
+      "name": "b",
+      "type": "money"
+    },
+    {
+      "name": "r",
+      "type": "decimal"
+    }
+  ],
+  "outputs": [
+    "total",
+    "difference",
+    "scaled",
+    "smaller"
+  ],
+  "definitions": [
+    {
+      "name": "total",
+      "type": "money",
+      "expr": {
+        "k": "error_on_empty",
+        "pos": {
+          "file": "arith.catala_en",
+          "line": 8
+        },
+        "arg": {
+          "k": "default",
+          "pos": {
+            "file": "arith.catala_en",
+            "line": 8
+          },
+          "exceptions": [
+            {
+              "k": "default",
+              "pos": {
+                "file": "arith.catala_en",
+                "line": 14
+              },
+              "exceptions": [],
+              "just": {
+                "k": "lit",
+                "type": "bool",
+                "value": "true",
+                "pos": {
+                  "file": "arith.catala_en",
+                  "line": 14
+                }
+              },
+              "cons": {
+                "k": "pure",
+                "pos": {
+                  "file": "arith.catala_en",
+                  "line": 14
+                },
+                "arg": {
+                  "k": "op",
+                  "op": "Add_mon_mon",
+                  "pos": {
+                    "file": "arith.catala_en",
+                    "line": 14
+                  },
+                  "args": [
+                    {
+                      "k": "var",
+                      "name": "a",
+                      "pos": {
+                        "file": "arith.catala_en",
+                        "line": 14
+                      }
+                    },
+                    {
+                      "k": "var",
+                      "name": "b",
+                      "pos": {
+                        "file": "arith.catala_en",
+                        "line": 14
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          ],
+          "just": {
+            "k": "lit",
+            "type": "bool",
+            "value": "false",
+            "pos": {
+              "file": "arith.catala_en",
+              "line": 8
+            }
+          },
+          "cons": {
+            "k": "empty",
+            "pos": {
+              "file": "arith.catala_en",
+              "line": 8
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "difference",
+      "type": "money",
+      "expr": {
+        "k": "error_on_empty",
+        "pos": {
+          "file": "arith.catala_en",
+          "line": 9
+        },
+        "arg": {
+          "k": "default",
+          "pos": {
+            "file": "arith.catala_en",
+            "line": 9
+          },
+          "exceptions": [
+            {
+              "k": "default",
+              "pos": {
+                "file": "arith.catala_en",
+                "line": 15
+              },
+              "exceptions": [],
+              "just": {
+                "k": "lit",
+                "type": "bool",
+                "value": "true",
+                "pos": {
+                  "file": "arith.catala_en",
+                  "line": 15
+                }
+              },
+              "cons": {
+                "k": "pure",
+                "pos": {
+                  "file": "arith.catala_en",
+                  "line": 15
+                },
+                "arg": {
+                  "k": "op",
+                  "op": "Sub_mon_mon",
+                  "pos": {
+                    "file": "arith.catala_en",
+                    "line": 15
+                  },
+                  "args": [
+                    {
+                      "k": "var",
+                      "name": "a",
+                      "pos": {
+                        "file": "arith.catala_en",
+                        "line": 15
+                      }
+                    },
+                    {
+                      "k": "var",
+                      "name": "b",
+                      "pos": {
+                        "file": "arith.catala_en",
+                        "line": 15
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          ],
+          "just": {
+            "k": "lit",
+            "type": "bool",
+            "value": "false",
+            "pos": {
+              "file": "arith.catala_en",
+              "line": 9
+            }
+          },
+          "cons": {
+            "k": "empty",
+            "pos": {
+              "file": "arith.catala_en",
+              "line": 9
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "scaled",
+      "type": "money",
+      "expr": {
+        "k": "error_on_empty",
+        "pos": {
+          "file": "arith.catala_en",
+          "line": 10
+        },
+        "arg": {
+          "k": "default",
+          "pos": {
+            "file": "arith.catala_en",
+            "line": 10
+          },
+          "exceptions": [
+            {
+              "k": "default",
+              "pos": {
+                "file": "arith.catala_en",
+                "line": 16
+              },
+              "exceptions": [],
+              "just": {
+                "k": "lit",
+                "type": "bool",
+                "value": "true",
+                "pos": {
+                  "file": "arith.catala_en",
+                  "line": 16
+                }
+              },
+              "cons": {
+                "k": "pure",
+                "pos": {
+                  "file": "arith.catala_en",
+                  "line": 16
+                },
+                "arg": {
+                  "k": "op",
+                  "op": "Mult_mon_rat",
+                  "pos": {
+                    "file": "arith.catala_en",
+                    "line": 16
+                  },
+                  "args": [
+                    {
+                      "k": "var",
+                      "name": "a",
+                      "pos": {
+                        "file": "arith.catala_en",
+                        "line": 16
+                      }
+                    },
+                    {
+                      "k": "var",
+                      "name": "r",
+                      "pos": {
+                        "file": "arith.catala_en",
+                        "line": 16
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          ],
+          "just": {
+            "k": "lit",
+            "type": "bool",
+            "value": "false",
+            "pos": {
+              "file": "arith.catala_en",
+              "line": 10
+            }
+          },
+          "cons": {
+            "k": "empty",
+            "pos": {
+              "file": "arith.catala_en",
+              "line": 10
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "smaller",
+      "type": "bool",
+      "expr": {
+        "k": "error_on_empty",
+        "pos": {
+          "file": "arith.catala_en",
+          "line": 11
+        },
+        "arg": {
+          "k": "default",
+          "pos": {
+            "file": "arith.catala_en",
+            "line": 11
+          },
+          "exceptions": [
+            {
+              "k": "default",
+              "pos": {
+                "file": "arith.catala_en",
+                "line": 17
+              },
+              "exceptions": [],
+              "just": {
+                "k": "lit",
+                "type": "bool",
+                "value": "true",
+                "pos": {
+                  "file": "arith.catala_en",
+                  "line": 17
+                }
+              },
+              "cons": {
+                "k": "pure",
+                "pos": {
+                  "file": "arith.catala_en",
+                  "line": 17
+                },
+                "arg": {
+                  "k": "op",
+                  "op": "Lt",
+                  "pos": {
+                    "file": "arith.catala_en",
+                    "line": 17
+                  },
+                  "args": [
+                    {
+                      "k": "var",
+                      "name": "a",
+                      "pos": {
+                        "file": "arith.catala_en",
+                        "line": 17
+                      }
+                    },
+                    {
+                      "k": "var",
+                      "name": "b",
+                      "pos": {
+                        "file": "arith.catala_en",
+                        "line": 17
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          ],
+          "just": {
+            "k": "lit",
+            "type": "bool",
+            "value": "false",
+            "pos": {
+              "file": "arith.catala_en",
+              "line": 11
+            }
+          },
+          "cons": {
+            "k": "empty",
+            "pos": {
+              "file": "arith.catala_en",
+              "line": 11
+            }
+          }
+        }
+      }
+    }
+  ]
+}

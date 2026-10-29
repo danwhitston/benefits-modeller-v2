@@ -1,0 +1,14 @@
+# Bounds for the non-boolean inputs of the Catala scope UniversalCredit.
+# Money is a decimal string in pounds. Dates are TOML dates.
+# The rules hold 2026/27 rates only, so the date range stops before the next
+# uprating.
+
+[inputs.assessment_period_start]
+type = "date"
+min = 2026-04-06
+max = 2027-04-05
+
+[inputs.earned_income]
+type = "money"
+min = "0.00"
+max = "10000.00"

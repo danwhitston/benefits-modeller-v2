@@ -1,0 +1,10 @@
+# Fixture: an input that is also an output, which bm-ir v0 does not support
+
+```catala
+declaration scope InputOutput:
+  input output x content money
+  output y content money
+
+scope InputOutput:
+  definition y equals x
+```

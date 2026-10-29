@@ -1,0 +1,20 @@
+# Fixture: base definition with two labelled exceptions
+
+```catala
+declaration scope Exception:
+  input high content boolean
+  input low content boolean
+  output amount content money
+
+scope Exception:
+  label base
+  definition amount equals $100.00
+
+  label higher
+  exception base
+  definition amount under condition high consequence equals $200.00
+
+  label lower
+  exception base
+  definition amount under condition low consequence equals $50.00
+```

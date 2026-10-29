@@ -1,0 +1,16 @@
+# Fixture: internal variable used by an output
+
+```catala
+declaration scope Internal:
+  input start content date
+  input income content money
+  internal rate content decimal
+  output deduction content money
+
+scope Internal:
+  definition rate
+    under condition start >= |2026-04-06|
+    consequence equals 55%
+
+  definition deduction equals income * rate
+```

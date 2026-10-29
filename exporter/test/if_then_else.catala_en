@@ -1,0 +1,12 @@
+# Fixture: conditional expression
+
+```catala
+declaration scope IfThenElse:
+  input flag content boolean
+  input a content money
+  output result content money
+
+scope IfThenElse:
+  definition result equals
+    if flag then a else $0.00
+```

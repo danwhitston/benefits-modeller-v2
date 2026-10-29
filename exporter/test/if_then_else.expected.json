@@ -1,0 +1,112 @@
+{
+  "bm_ir_version": 0,
+  "catala_version": "1.3.0",
+  "scope": "IfThenElse",
+  "inputs": [
+    {
+      "name": "flag",
+      "type": "bool"
+    },
+    {
+      "name": "a",
+      "type": "money"
+    }
+  ],
+  "outputs": [
+    "result"
+  ],
+  "definitions": [
+    {
+      "name": "result",
+      "type": "money",
+      "expr": {
+        "k": "error_on_empty",
+        "pos": {
+          "file": "if_then_else.catala_en",
+          "line": 7
+        },
+        "arg": {
+          "k": "default",
+          "pos": {
+            "file": "if_then_else.catala_en",
+            "line": 7
+          },
+          "exceptions": [
+            {
+              "k": "default",
+              "pos": {
+                "file": "if_then_else.catala_en",
+                "line": 11
+              },
+              "exceptions": [],
+              "just": {
+                "k": "lit",
+                "type": "bool",
+                "value": "true",
+                "pos": {
+                  "file": "if_then_else.catala_en",
+                  "line": 10
+                }
+              },
+              "cons": {
+                "k": "pure",
+                "pos": {
+                  "file": "if_then_else.catala_en",
+                  "line": 11
+                },
+                "arg": {
+                  "k": "if",
+                  "pos": {
+                    "file": "if_then_else.catala_en",
+                    "line": 11
+                  },
+                  "cond": {
+                    "k": "var",
+                    "name": "flag",
+                    "pos": {
+                      "file": "if_then_else.catala_en",
+                      "line": 11
+                    }
+                  },
+                  "then": {
+                    "k": "var",
+                    "name": "a",
+                    "pos": {
+                      "file": "if_then_else.catala_en",
+                      "line": 11
+                    }
+                  },
+                  "else": {
+                    "k": "lit",
+                    "type": "money",
+                    "value": "0",
+                    "pos": {
+                      "file": "if_then_else.catala_en",
+                      "line": 11
+                    }
+                  }
+                }
+              }
+            }
+          ],
+          "just": {
+            "k": "lit",
+            "type": "bool",
+            "value": "false",
+            "pos": {
+              "file": "if_then_else.catala_en",
+              "line": 7
+            }
+          },
+          "cons": {
+            "k": "empty",
+            "pos": {
+              "file": "if_then_else.catala_en",
+              "line": 7
+            }
+          }
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,139 @@
+; Golden tests for the bm-export plugin. Each fixture is exported with the
+; plugin built in this project, and the result is compared with a JSON file
+; written by hand. The fixtures use no standard library, so they do not need
+; `clerk start`.
+
+(executable
+ (name check)
+ (modules check)
+ (libraries yojson))
+
+(rule
+ (deps ../plugin/bm_export.cmxs)
+ (action
+  (with-stdout-to
+   lit_money.out.json
+   (run catala bm-export --plugin-dir ../plugin --no-stdlib -s LitMoney %{dep:lit_money.catala_en}))))
+
+(rule
+ (alias runtest)
+ (action
+  (run %{exe:check.exe} json %{dep:lit_money.expected.json} %{dep:lit_money.out.json})))
+
+(rule
+ (deps ../plugin/bm_export.cmxs)
+ (action
+  (with-stdout-to
+   lit_decimal.out.json
+   (run catala bm-export --plugin-dir ../plugin --no-stdlib -s LitDecimal %{dep:lit_decimal.catala_en}))))
+
+(rule
+ (alias runtest)
+ (action
+  (run %{exe:check.exe} json %{dep:lit_decimal.expected.json} %{dep:lit_decimal.out.json})))
+
+(rule
+ (deps ../plugin/bm_export.cmxs)
+ (action
+  (with-stdout-to
+   lit_date.out.json
+   (run catala bm-export --plugin-dir ../plugin --no-stdlib -s LitDate %{dep:lit_date.catala_en}))))
+
+(rule
+ (alias runtest)
+ (action
+  (run %{exe:check.exe} json %{dep:lit_date.expected.json} %{dep:lit_date.out.json})))
+
+(rule
+ (deps ../plugin/bm_export.cmxs)
+ (action
+  (with-stdout-to
+   arith.out.json
+   (run catala bm-export --plugin-dir ../plugin --no-stdlib -s Arith %{dep:arith.catala_en}))))
+
+(rule
+ (alias runtest)
+ (action
+  (run %{exe:check.exe} json %{dep:arith.expected.json} %{dep:arith.out.json})))
+
+(rule
+ (deps ../plugin/bm_export.cmxs)
+ (action
+  (with-stdout-to
+   if_then_else.out.json
+   (run catala bm-export --plugin-dir ../plugin --no-stdlib -s IfThenElse %{dep:if_then_else.catala_en}))))
+
+(rule
+ (alias runtest)
+ (action
+  (run %{exe:check.exe} json %{dep:if_then_else.expected.json} %{dep:if_then_else.out.json})))
+
+(rule
+ (deps ../plugin/bm_export.cmxs)
+ (action
+  (with-stdout-to
+   exception.out.json
+   (run catala bm-export --plugin-dir ../plugin --no-stdlib -s Exception %{dep:exception.catala_en}))))
+
+(rule
+ (alias runtest)
+ (action
+  (run %{exe:check.exe} json %{dep:exception.expected.json} %{dep:exception.out.json})))
+
+(rule
+ (deps ../plugin/bm_export.cmxs)
+ (action
+  (with-stdout-to
+   date_condition.out.json
+   (run catala bm-export --plugin-dir ../plugin --no-stdlib -s DateCondition %{dep:date_condition.catala_en}))))
+
+(rule
+ (alias runtest)
+ (action
+  (run %{exe:check.exe} json %{dep:date_condition.expected.json} %{dep:date_condition.out.json})))
+
+(rule
+ (deps ../plugin/bm_export.cmxs)
+ (action
+  (with-stdout-to
+   internal.out.json
+   (run catala bm-export --plugin-dir ../plugin --no-stdlib -s Internal %{dep:internal.catala_en}))))
+
+(rule
+ (alias runtest)
+ (action
+  (run %{exe:check.exe} json %{dep:internal.expected.json} %{dep:internal.out.json})))
+
+; A list literal is outside bm-ir v0: the export must fail and name the
+; construct and its line.
+
+(rule
+ (deps ../plugin/bm_export.cmxs)
+ (action
+  (with-accepted-exit-codes
+   (not 0)
+   (with-outputs-to
+    unsupported.out.txt
+    (run catala bm-export --plugin-dir ../plugin --no-stdlib --color=never -s Unsupported %{dep:unsupported.catala_en})))))
+
+(rule
+ (alias runtest)
+ (action
+  (run %{exe:check.exe} contains %{dep:unsupported.expected.txt} %{dep:unsupported.out.txt})))
+
+; An input that is also an output has no definition, so it cannot be listed in
+; outputs: the export must fail.
+
+(rule
+ (deps ../plugin/bm_export.cmxs)
+ (action
+  (with-accepted-exit-codes
+   (not 0)
+   (with-outputs-to
+    input_output.out.txt
+    (run catala bm-export --plugin-dir ../plugin --no-stdlib --color=never -s InputOutput %{dep:input_output.catala_en})))))
+
+(rule
+ (alias runtest)
+ (action
+  (run %{exe:check.exe} contains %{dep:input_output.expected.txt} %{dep:input_output.out.txt})))

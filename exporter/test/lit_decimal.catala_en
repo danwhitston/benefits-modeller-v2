@@ -1,0 +1,9 @@
+# Fixture: decimal literal
+
+```catala
+declaration scope LitDecimal:
+  output rate content decimal
+
+scope LitDecimal:
+  definition rate equals 55%
+```
