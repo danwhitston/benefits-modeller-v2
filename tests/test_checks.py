@@ -104,6 +104,36 @@ def test_last_penny_earnings(aged_25, lcw, housing):
     assert evaluate.outputs(module, below)["award"] == 1
 
 
+def test_generate_covers_housing():
+    _, bounds = _loaded()
+    generated = households.generate(bounds, n_random=50, seed=1)
+    seen = {tuple(sorted(h.items())) for h in generated}
+
+    def has(earned, aged_25, lcw, housing):
+        h = household(households.TABLE_START, earned, aged_25, lcw, housing)
+        return tuple(sorted(h.items())) in seen
+
+    # Bullet 1: element values 0 and 1.
+    assert {0, 1} <= {h["housing_costs_element"] for h in generated}
+    # Bullet 2: with LCW and an element above 0, earnings at the lower work
+    # allowance (427.00) and 1p either side, for both age bands.
+    for aged_25 in (True, False):
+        for earned in (42_699, 42_700, 42_701):
+            assert has(earned, aged_25, True, 50_000)
+        # The 1p element at earnings 0 with LCW.
+        assert has(0, aged_25, True, 1)
+        # Without LCW there is no work allowance, element or not.
+        assert has(0, aged_25, False, 50_000) and has(1, aged_25, False, 50_000)
+        # The smallest earnings with an award of 0, and 1p less, with the element.
+        for lcw in (True, False):
+            zero = LAST_PENNY_WITH_HOUSING[(aged_25, lcw)]
+            assert has(zero, aged_25, lcw, 50_000) and has(zero - 1, aged_25, lcw, 50_000)
+    # Bullet 3: random households with a zero and with a positive element.
+    random_part = generated[-50:]
+    assert any(h["housing_costs_element"] == 0 for h in random_part)
+    assert any(h["housing_costs_element"] > 0 for h in random_part)
+
+
 def test_generate_composition():
     module, bounds = _loaded()
     generated = households.generate(bounds, n_random=50, seed=1)
