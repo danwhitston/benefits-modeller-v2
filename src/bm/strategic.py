@@ -208,19 +208,22 @@ class TimingResult:
 
     `gain` is the worst case over the judgement cases, in pence, and
     `per_case` holds each case's own best gain. Values are Z3's, and are None
-    where Z3 found no optimum. `status` is "optimal" only when cvc5 confirmed
-    every optimisation; otherwise it is "unknown", which never means no gain.
-    `witnesses` are the households of the worst-case optimum.
+    where Z3 found no optimum. Each value has its own status: "optimal" when
+    cvc5 confirmed it, otherwise "unknown", with the value kept if only cvc5
+    could not confirm it. `status` is "optimal" only when every optimisation
+    is; "unknown" never means no gain. `witnesses` are the households of the
+    worst-case optimum. `verification` is described at `_verification`.
     """
 
     status: Literal["optimal", "unknown"]
     gain: int | None
+    gain_status: Literal["optimal", "unknown"]
     per_case: list[tuple[dict[str, bool], Literal["optimal", "unknown"], int | None]]
     fixed: dict[str, int | bool]
     starts: list[int]  # days since 1970-01-01, one per period
     total: int | None  # the chosen input's total over both periods
     witnesses: list[Witness]
-    verification: dict[str, str]  # {"cvc5": "confirmed"|"unknown", "replay": "matched"|"not run"}
+    verification: dict[str, str | list[str]]
     versions: dict[str, str]
 
 
@@ -305,36 +308,65 @@ def timing(
         return optimum, witnesses
 
     numbered = list(enumerate(all_cases, start=1))
-    runs = [optimise(numbered, "in every case")]
+    runs = {"gain": optimise(numbered, "in every case")}
     if len(numbered) > 1:
-        runs += [optimise([(c, case)], f"in case {case}") for c, case in numbered]
+        for c, case in numbered:
+            runs[f"case {case_label(case)}"] = optimise([(c, case)], f"in case {case}")
     # With one case, the worst case is that case's own optimisation.
-    own = runs if len(numbered) == 1 else runs[1:]
-    robust, witnesses = runs[0]
-
-    replayed = "not run"
-    if rules is not None and any(found for _, found in runs):
-        for _, found in runs:
-            replay(rules, found)
-        replayed = "matched"
-    optima = [optimum for optimum, _ in runs]
+    own = list(runs.values()) if len(numbered) == 1 else list(runs.values())[1:]
+    robust, witnesses = runs["gain"]
     return TimingResult(
-        status="optimal" if all(o.status == "optimal" for o in optima) else "unknown",
+        status="optimal" if all(o.status == "optimal" for o, _ in runs.values()) else "unknown",
         gain=robust.value,
-        per_case=[
-            (case, "optimal" if o.status == "optimal" else "unknown", o.value)
-            for case, (o, _) in zip(all_cases, own, strict=True)
-        ],
+        gain_status=_status(robust),
+        per_case=[(case, _status(o), o.value) for case, (o, _) in zip(all_cases, own, strict=True)],
         fixed=fixed,
         starts=starts,
         total=None if robust.model is None else robust.model["choice.total"],
         witnesses=witnesses,
-        verification={
-            "cvc5": "confirmed" if all(o.confirmed for o in optima) else "unknown",
-            "replay": replayed,
-        },
+        verification=_verification(rules, runs),
         versions=robust.versions,
     )
+
+
+def case_label(case: dict[str, bool]) -> str:
+    """A judgement case in words, such as "has_lcw yes"."""
+    if not case:
+        return "no judgement points"
+    return ", ".join(f"{name} {'yes' if v else 'no'}" for name, v in case.items())
+
+
+def _status(optimum: solvers.Optimum) -> Literal["optimal", "unknown"]:
+    return "optimal" if optimum.status == "optimal" else "unknown"
+
+
+def _verification(
+    rules: Path | None, runs: dict[str, tuple[solvers.Optimum, list[Witness]]]
+) -> dict[str, str | list[str]]:
+    """Replay every optimisation's witnesses, and say what was checked.
+
+    `runs` maps a name for each optimisation to its optimum and witnesses.
+    "cvc5" is "confirmed" when cvc5 confirmed every optimum, otherwise
+    "unknown". "replayed" names the optimisations whose witnesses Catala's
+    interpreter replayed, and "replay" is "matched" when that is all of them,
+    "matched in part" when some had no witnesses because Z3 found no optimum,
+    and "not run" when none was replayed. A mismatch raises `ReplayMismatch`.
+    """
+    replayed = []
+    if rules is not None:
+        for name, (_, found) in runs.items():
+            if found:
+                replay(rules, found)
+                replayed.append(name)
+    if not replayed:
+        outcome = "not run"
+    else:
+        outcome = "matched" if len(replayed) == len(runs) else "matched in part"
+    return {
+        "cvc5": "confirmed" if all(o.confirmed for o, _ in runs.values()) else "unknown",
+        "replay": outcome,
+        "replayed": replayed,
+    }
 
 
 def _script(
@@ -430,21 +462,25 @@ class JudgementResult:
     """The outcome of `judgement_value`.
 
     `largest` and `smallest` are award(point true) - award(point false) in
-    pence, Z3's optima, or None where Z3 found none. `status` is "optimal"
-    only when cvc5 confirmed both; otherwise it is "unknown", which never
-    means the value is nil. Each list of witnesses holds the household with the
-    point true, then the same household with it false (kind "single", period 1).
+    pence, Z3's optima, or None where Z3 found none. Each has its own status:
+    "optimal" when cvc5 confirmed it, otherwise "unknown", with the value kept
+    if only cvc5 could not confirm it. `status` is "optimal" only when both
+    are; "unknown" never means the value is nil. Each list of witnesses holds
+    the household with the point true, then the same household with it false
+    (kind "single", period 1). `verification` is described at `_verification`.
     """
 
     point: str
     status: Literal["optimal", "unknown"]
     largest: int | None
+    largest_status: Literal["optimal", "unknown"]
     smallest: int | None
+    smallest_status: Literal["optimal", "unknown"]
     largest_witnesses: list[Witness]
     smallest_witnesses: list[Witness]
     fixed: dict[str, int | bool]
     start: int  # days since 1970-01-01
-    verification: dict[str, str]  # {"cvc5": "confirmed"|"unknown", "replay": "matched"|"not run"}
+    verification: dict[str, str | list[str]]
     versions: dict[str, str]
 
 
@@ -514,27 +550,19 @@ def judgement_value(
         witnesses = [] if optimum.model is None else _witnesses(households, optimum.model)
         return optimum, witnesses
 
-    largest, largest_witnesses = optimise("max")
-    smallest, smallest_witnesses = optimise("min")
-
-    replayed = "not run"
-    if rules is not None and (largest_witnesses or smallest_witnesses):
-        replay(rules, largest_witnesses)
-        replay(rules, smallest_witnesses)
-        replayed = "matched"
-    optima = [largest, smallest]
+    runs = {"largest": optimise("max"), "smallest": optimise("min")}
+    (largest, largest_witnesses), (smallest, smallest_witnesses) = runs.values()
     return JudgementResult(
         point=point,
-        status="optimal" if all(o.status == "optimal" for o in optima) else "unknown",
+        status="optimal" if all(o.status == "optimal" for o, _ in runs.values()) else "unknown",
         largest=largest.value,
+        largest_status=_status(largest),
         smallest=smallest.value,
+        smallest_status=_status(smallest),
         largest_witnesses=largest_witnesses,
         smallest_witnesses=smallest_witnesses,
         fixed=fixed,
         start=start_day,
-        verification={
-            "cvc5": "confirmed" if all(o.confirmed for o in optima) else "unknown",
-            "replay": replayed,
-        },
+        verification=_verification(rules, runs),
         versions=largest.versions,
     )

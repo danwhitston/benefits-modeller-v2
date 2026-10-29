@@ -190,37 +190,52 @@ def witness(period=1, kind="split", has_lcw=True, earnings=100_000, award=40_000
     return Witness({"has_lcw": has_lcw}, period, kind, household, award)
 
 
-VERIFIED = {"cvc5": "confirmed", "replay": "matched"}
+VERIFIED = {"cvc5": "confirmed", "replay": "matched", "replayed": ["gain"]}
 VERSIONS = {"z3": "1", "cvc5": "2"}
 
 
-def make_timing(status="optimal", gain=12_345, per_case_gain=12_345, cvc5="confirmed") -> TimingResult:
+def make_timing(
+    status="optimal", gain=12_345, per_case_gain=12_345, cvc5="confirmed", gain_status=None
+) -> TimingResult:
+    """A timing result whose values all have `status`, unless `gain_status` is given."""
     witnesses = [witness(p, k) for p in (1, 2) for k in ("split", "baseline")]
+    replayed = ["gain"] if gain is not None else []
     return TimingResult(
         status,
         gain,
+        gain_status or status,
         [({"has_lcw": True}, status, per_case_gain)],
         {},
         [20549, 20579],
         142_001 if gain is not None else None,
         witnesses if gain is not None else [],
-        {"cvc5": cvc5, "replay": "matched" if gain is not None else "not run"},
+        {"cvc5": cvc5, "replay": "matched" if replayed else "not run", "replayed": replayed},
         VERSIONS,
     )
 
 
-def make_judgement(status="optimal", largest=39_050, smallest=0, cvc5="confirmed") -> JudgementResult:
+def make_judgement(
+    status="optimal", largest=39_050, smallest=0, cvc5="confirmed", largest_status=None
+) -> JudgementResult:
+    """A judgement result whose values all have `status`, unless `largest_status` is given."""
     yes, no = witness(has_lcw=True, kind="single"), witness(has_lcw=False, kind="single")
+    replayed = [n for n, v in (("largest", largest), ("smallest", smallest)) if v is not None]
     return JudgementResult(
         "has_lcw",
         status,
         largest,
+        largest_status or status,
         smallest,
+        status,
         [yes, no] if largest is not None else [],
         [yes, no] if smallest is not None else [],
         {},
         20549,
-        {"cvc5": cvc5, "replay": "matched"},
+        {
+            "cvc5": cvc5,
+            "replay": "matched" if len(replayed) == 2 else "matched in part",
+            "replayed": replayed,
+        },
         VERSIONS,
     )
 
@@ -542,6 +557,23 @@ def test_timing_dict_carries_the_labels_and_the_known_pence():
     assert inputs_of_first["has_lcw"]["controlled_by"] == ["decision_maker"]
     assert data["verification"] == VERIFIED
     assert data["per_case"] == [{"case": {"has_lcw": True}, "status": "optimal", "gain": 12_345}]
+    assert data["gain_status"] == "optimal"
+
+
+def test_timing_text_words_each_value_from_its_own_status():
+    # The worst-case gain is confirmed; the case's own optimisation found no
+    # value in time. Only the case's line is UNKNOWN, and nothing says that
+    # cvc5 could not confirm the gain.
+    result = make_timing("unknown", 1, None, "unknown", gain_status="optimal")
+    lines = report.timing_text(result, SPECS)
+    (gain,) = [line for line in lines if "count on" in line]
+    assert gain.endswith(": £0.01")
+    (case,) = [line for line in lines if "Best gain with" in line]
+    assert "UNKNOWN" in case and "Z3 did not prove a result" in case
+    assert not any("cvc5 could not confirm" in line for line in lines)
+    data = report.timing_dict(result, SPECS)
+    assert data["unknown"] is True and data["status"] == "unknown"
+    assert data["gain_status"] == "optimal" and data["per_case"][0]["status"] == "unknown"
 
 
 def test_timing_text_shows_labels_gain_and_verification():
@@ -581,12 +613,18 @@ def test_judgement_text_and_dict():
 
 
 def test_judgement_text_unknown_with_one_missing_value():
-    result = make_judgement("unknown", 39_050, None, "unknown")
+    result = make_judgement("unknown", 39_050, None, "unknown", largest_status="optimal")
     text = "\n".join(report.judgement_text(result, SPECS))
     assert "UNKNOWN" in text and "£390.50" in text
     assert "None" not in text
+    (largest,) = [line for line in text.splitlines() if "Largest value" in line]
+    assert largest.endswith(": £390.50")
     (smallest,) = [line for line in text.splitlines() if "Smallest value" in line]
     assert "UNKNOWN" in smallest and "£0.00" not in smallest
+    assert "Catala's interpreter gave the same award as Z3 at the witnesses of largest" in text
+    data = report.judgement_dict(result, SPECS)
+    assert data["largest_status"] == "optimal" and data["smallest_status"] == "unknown"
+    assert data["verification"]["replayed"] == ["largest"]
 
 
 def test_text_report_ends_with_the_model_gaps_pointer_and_has_the_strategic_sections():

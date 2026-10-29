@@ -174,7 +174,12 @@ def test_timing_gain_never_negative():
     result = _default()
     assert result.status == "optimal"
     assert result.gain >= 0
-    assert result.verification == {"cvc5": "confirmed", "replay": "matched"}
+    assert result.gain_status == "optimal"
+    assert result.verification == {
+        "cvc5": "confirmed",
+        "replay": "matched",
+        "replayed": ["gain", "case has_lcw yes", "case has_lcw no"],
+    }
     assert [case for case, _, _ in result.per_case] == [{"has_lcw": True}, {"has_lcw": False}]
     for _, status, gain in result.per_case:
         assert status == "optimal"
@@ -216,7 +221,7 @@ def test_timing_matches_brute_force(aged_25, housing, total):
         ({"has_lcw": False}, "optimal", per_case[False]),
     ]
     assert result.total == total
-    assert result.verification == {"cvc5": "confirmed", "replay": "not run"}
+    assert result.verification == {"cvc5": "confirmed", "replay": "not run", "replayed": []}
     for w in result.witnesses:
         e = w.inputs["earned_income"]
         assert w.award == reference_uc.award(e, aged_25, w.inputs["has_lcw"], housing)
@@ -353,7 +358,12 @@ def test_lcw_value_no_housing():
     _assert_witnesses(result, 0, result.smallest_witnesses)
     assert result.smallest_witnesses[0].inputs["earned_income"] == 0
     assert result.fixed == {"housing_costs_element": 0}
-    assert result.verification == {"cvc5": "confirmed", "replay": "matched"}
+    assert result.largest_status == result.smallest_status == "optimal"
+    assert result.verification == {
+        "cvc5": "confirmed",
+        "replay": "matched",
+        "replayed": ["largest", "smallest"],
+    }
 
 
 def test_lcw_value_with_housing():
@@ -403,7 +413,39 @@ def test_judgement_unknown_is_not_a_value(monkeypatch):
     assert result.status == "unknown"
     assert result.largest is None and result.largest_witnesses == []
     assert result.smallest == 0 and len(result.smallest_witnesses) == 2
-    assert result.verification == {"cvc5": "unknown", "replay": "matched"}
+    assert result.largest_status == result.smallest_status == "unknown"
+    assert result.verification == {
+        "cvc5": "unknown",
+        "replay": "matched in part",
+        "replayed": ["smallest"],
+    }
+
+
+def test_timing_unknown_case_leaves_the_other_statuses_alone(monkeypatch):
+    # Z3 runs out of time on the case with LCW only. The worst-case gain and
+    # the other case keep their own confirmed results.
+    real = solvers.optimise_and_confirm
+
+    def stub(lines, objective, direction, timeout_ms, context=""):
+        if "{'has_lcw': True}" in context:
+            return solvers.Optimum("unknown", None, None, solvers.versions(), False)
+        return real(lines, objective, direction, timeout_ms, context)
+
+    monkeypatch.setattr(solvers, "optimise_and_confirm", stub)
+    total, (aged_25, housing) = TOTALS[0], HOUSEHOLDS[1]
+    result = timing(_module(), SPECS, fixed=_fixed(aged_25, housing), total=total)
+    robust, per_case = _brute_force(total, aged_25, housing)
+    assert result.status == "unknown"
+    assert result.gain == robust and result.gain_status == "optimal"
+    assert result.per_case == [
+        ({"has_lcw": True}, "unknown", None),
+        ({"has_lcw": False}, "optimal", per_case[False]),
+    ]
+    assert result.verification == {
+        "cvc5": "unknown",
+        "replay": "matched in part",
+        "replayed": ["gain", "case has_lcw no"],
+    }
 
 
 def test_judgement_no_household():

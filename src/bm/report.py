@@ -215,19 +215,18 @@ def _controls(spec: InputSpec) -> str:
     return f"controlled by {', '.join(spec.controlled_by)}; checked by {spec.checked_by}"
 
 
-def _case_text(case: dict[str, bool]) -> str:
-    if not case:
-        return "no judgement points"
-    return ", ".join(f"{name} {'yes' if v else 'no'}" for name, v in case.items())
-
-
 def _result_line(label: str, status: str, amount: int | None) -> str:
-    """One result. An unknown result is never shown as an answer, or as nil."""
+    """One result, worded from its own status.
+
+    An unknown result is never shown as an answer, or as nil. An unknown with
+    an amount is one that Z3 proved but cvc5 could not confirm: the solvers
+    keep Z3's value only then.
+    """
     if status == "optimal":
         return f"{label}: {money(amount)}"
     if amount is None:
         return (
-            f"{label}: UNKNOWN. The solver found no result in the time allowed. "
+            f"{label}: UNKNOWN. Z3 did not prove a result in the time allowed. "
             "That is not a result of nil."
         )
     return (
@@ -243,17 +242,22 @@ def _fixed_line(specs: dict[str, InputSpec], fixed: dict[str, int | bool]) -> st
     return f"  Fixed by the caller: {shown}"
 
 
-def _verification_line(verification: dict[str, str]) -> str:
+def _verification_line(verification: dict) -> str:
     cvc5 = (
-        "cvc5 confirmed that nothing better exists"
+        "cvc5 confirmed that nothing better exists for every result"
         if verification["cvc5"] == "confirmed"
-        else "cvc5 could not confirm that nothing better exists"
+        else "cvc5 did not confirm every result, and each UNKNOWN line says what is missing"
     )
-    replay = (
-        "Catala's interpreter gave the same award as Z3 at every witness"
-        if verification["replay"] == "matched"
-        else "no witness was replayed through Catala"
-    )
+    match verification["replay"]:
+        case "matched":
+            replay = "Catala's interpreter gave the same award as Z3 at every witness"
+        case "matched in part":
+            replay = (
+                "Catala's interpreter gave the same award as Z3 at the witnesses of "
+                f"{', '.join(verification['replayed'])}; the other results have no witness"
+            )
+        case _:
+            replay = "no witness was replayed through Catala"
     return f"  Verification: {cvc5}; {replay}"
 
 
@@ -279,7 +283,11 @@ def timing_text(result: TimingResult, specs: dict[str, InputSpec]) -> list[str]:
         "summed over both periods."
     )
     out.append(
-        _result_line("  Gain the claimant can count on (worst case over the judgement cases)", result.status, result.gain)
+        _result_line(
+            "  Gain the claimant can count on (worst case over the judgement cases)",
+            result.gain_status,
+            result.gain,
+        )
     )
     if result.total is not None:
         out.append(f"  Total of {TIMING_INPUT} over both periods at that gain: {money(result.total)}")
@@ -287,12 +295,12 @@ def timing_text(result: TimingResult, specs: dict[str, InputSpec]) -> list[str]:
     out.append(f"  Periods start: {starts}")
     out.append(_fixed_line(specs, result.fixed))
     for case, status, gain in result.per_case:
-        out.append(_result_line(f"  Best gain with {_case_text(case)}", status, gain))
+        out.append(_result_line(f"  Best gain with {strategic.case_label(case)}", status, gain))
     out.append(_verification_line(result.verification))
     if result.witnesses:
         out.append("  Households of the gain above:")
         for w in result.witnesses:
-            heading = f"period {w.period} ({w.kind}), {_case_text(w.case)}"
+            heading = f"period {w.period} ({w.kind}), {strategic.case_label(w.case)}"
             out += _indent(_witness_lines(specs, w, heading), 4)
     return out
 
@@ -305,8 +313,8 @@ def judgement_text(result: JudgementResult, specs: dict[str, InputSpec]) -> list
         f"  The value is the award with {result.point} yes less the award with it no, "
         f"in the assessment period starting {units.to_date(result.start).isoformat()}."
     )
-    out.append(_result_line("  Largest value", result.status, result.largest))
-    out.append(_result_line("  Smallest value", result.status, result.smallest))
+    out.append(_result_line("  Largest value", result.largest_status, result.largest))
+    out.append(_result_line("  Smallest value", result.smallest_status, result.smallest))
     out.append(_fixed_line(specs, result.fixed))
     out.append(_verification_line(result.verification))
     for label, found in (
@@ -316,7 +324,7 @@ def judgement_text(result: JudgementResult, specs: dict[str, InputSpec]) -> list
         if found:
             out.append(f"  Households of the {label} value:")
             for w in found:
-                out += _indent(_witness_lines(specs, w, _case_text(w.case)), 4)
+                out += _indent(_witness_lines(specs, w, strategic.case_label(w.case)), 4)
     return out
 
 
@@ -442,6 +450,7 @@ def timing_dict(result: TimingResult, specs: dict[str, InputSpec]) -> dict:
         "status": result.status,
         "unknown": result.status == "unknown",
         "gain": result.gain,
+        "gain_status": result.gain_status,
         "total": result.total,
         "starts": result.starts,
         "fixed": result.fixed,
@@ -462,7 +471,9 @@ def judgement_dict(result: JudgementResult, specs: dict[str, InputSpec]) -> dict
         "status": result.status,
         "unknown": result.status == "unknown",
         "largest": result.largest,
+        "largest_status": result.largest_status,
         "smallest": result.smallest,
+        "smallest_status": result.smallest_status,
         "start": result.start,
         "fixed": result.fixed,
         "largest_witnesses": [_witness_dict(specs, w) for w in result.largest_witnesses],
