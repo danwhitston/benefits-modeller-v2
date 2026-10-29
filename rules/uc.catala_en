@@ -250,8 +250,14 @@ Simplifications, in addition to those of the rules above:
 * Regulation 54A(5), under which no surplus is taken into account for a
   claimant who has "recently been a victim of domestic violence", is not
   represented.
-* The thresholds use the maximum amount and the work allowance of the period
-  being decided. The regulation does not say which period's figures apply.
+* Each surplus is measured against the thresholds of the period whose earnings
+  are measured: the nil period for the original surplus, and the period of the
+  failed claim for an adjusted surplus. Regulation 54A does not say which
+  period's maximum amount and work allowance apply. The other reading, the
+  period of the claim being decided, gives a different figure only when the
+  maximum amount or the work allowance changes within the window, which in
+  this model happens only when the limited capability for work finding does
+  not carry over. This is the project's reading, for specialist review.
 
 ## Step scope declaration
 

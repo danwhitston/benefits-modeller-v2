@@ -503,6 +503,46 @@ scope TestWindowFailedMonthNotClaim:
   assertion (computation.total_award = $0.00)
 ```
 
+## Window: household H, a claim that succeeds with a surplus
+
+```catala
+#[test]
+declaration scope TestWindowClaimSucceedsWithSurplus:
+  output computation content Uc.ClaimWindow
+
+scope TestWindowClaimSucceedsWithSurplus:
+  # Period 1: nil, as in the reclaim case; original surplus 2,638.64.
+  # Period 2, the first claim: 0.00 + 2,638.64 = 2,638.64 used.
+  # 2,638.64 - 427.00 = 2,211.64; 55% x 2,211.64 = 1,216.402, which rounds to
+  # 1,216.40; 1,228.90 - 1,216.40 = 12.50. The claim succeeds, so the surplus
+  # is used up: 0.00 carries on, although a failed month would not count as a
+  # claim here.
+  # Period 3: the new award continues with no earnings: 1,228.90.
+  definition computation equals
+    output of Uc.ClaimWindow with {
+      -- start_1: |2026-04-06|
+      -- start_2: |2026-05-06|
+      -- start_3: |2026-06-06|
+      -- earnings_1: $7,800.00
+      -- earnings_2: $0.00
+      -- earnings_3: $0.00
+      -- aged_25_or_over: true
+      -- housing_costs_element: $804.00
+      -- has_lcw: true
+      -- claim_after_end: true
+      -- claim_each_month: false
+      -- lcw_carries_over: true
+    }
+  assertion (computation.surplus_after_1 = $2,638.64)
+  assertion (computation.earnings_used_2 = $2,638.64)
+  assertion (computation.award_2 = $12.50)
+  assertion (computation.entitled_2)
+  assertion (computation.surplus_after_2 = $0.00)
+  assertion (computation.earnings_used_3 = $0.00)
+  assertion (computation.award_3 = $1,228.90)
+  assertion (computation.total_award = $1,241.40)
+```
+
 ## Window: household H, no claim after the end
 
 ```catala

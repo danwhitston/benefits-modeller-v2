@@ -90,6 +90,19 @@ def test_a_failed_month_that_is_not_a_claim_leaves_the_surplus():
     assert trace[2].award == 0
 
 
+def test_a_claim_that_succeeds_uses_up_the_surplus():
+    # 263,864 used; 55% x (263,864 - 42,700) = 121,640.2, so 121,640;
+    # 122,890 - 121,640 = 1,250. Failed months are not claims here, so only
+    # the success clears the surplus.
+    trace = run([780_000, 0, 0], case={"claim_each_month": False})
+    assert trace[0].surplus_after == 263_864
+    assert trace[1].earnings_used == 263_864
+    assert trace[1].award == 1_250
+    assert trace[1].entitled
+    assert trace[1].surplus_after == 0
+    assert trace[2].award == 122_890
+
+
 def test_no_claim_after_the_end_pays_nothing_and_keeps_the_surplus():
     trace = run([780_000, 200_000, 200_000], case={"claim_after_end": False})
     assert trace[1].award == 0

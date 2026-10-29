@@ -233,7 +233,7 @@ Notes:
 
 Each of these is for specialist review.
 
-1. **Which period's maximum amount and work allowance set the surplus threshold** (section 1.6). The model uses the period of the claim being decided.
+1. **Which period's maximum amount and work allowance set the surplus threshold** (section 1.6). The model measures each surplus against the thresholds of the period whose earnings are measured: the nil period for the original surplus, and the period of the failed claim for an adjusted surplus. The other reading, the period of the claim being decided, gives a different figure only when the maximum amount or the work allowance changes within the window, which in the model happens only when the LCW finding does not carry over.
 2. **A chain of claims that crosses 31 March 2027.** Regulation 5 of S.I. 2015/345 sets the threshold claim by claim. On a literal reading, a claim governed by £300 might measure the original surplus again against the lower threshold, and so meet regulation 54A(1)(c) for the first time. The text gives no rule for a chain. The model avoids such chains.
 3. **Whether DWP treats a failed month as a claim** (section 1.3), which changes how far a surplus is worn down.
 4. **Whether the 5 months chain** from a treated claim that leads to no award (section 1.2). The ADM says not.
