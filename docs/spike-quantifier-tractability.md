@@ -83,6 +83,10 @@ Disagreements across all 30 scaling points: none among the answers that were ret
 5. **Parsing differences matter to the translator.** cvc5 rejects a unary `(+ x)`, which Z3 accepts. A translator that emits n-ary sums must special-case n = 1. This was found by the spike, and is a reason to keep both solvers in the loop for emitted text.
 6. **`unknown` must stay a first-class result.** Timeouts are frequent at the larger sizes. Reading one as "no such choice exists" would give a wrong answer. The design already says this; the spike confirms it matters.
 
+## Later evidence
+
+Added on 29 October 2026, during milestone 2. The timing query's tests include a cross-check in the quantified form (Form A) at two assessment periods, on the real rules rather than this toy model: is there a split such that, for every value of the LCW finding, the gain reaches the optimum? For one household (aged 25 or over, a housing costs element of 500 pounds, total earnings of 1,420.01 pounds), cvc5 1.4.2 returned `unknown` after 60 seconds, while Z3 answered. The opposite direction (no split exceeds the optimum) was settled by both solvers. So finding 1 above, that the question is trivial at two periods, held for the toy model but not for every instance on the real rules. This supports the recommendation to expand judgement points into cases by default and keep `forall` as a cross-check only.
+
 ## Limits of this spike
 
 - One toy model, with all judgement points Boolean and independent, and a convex piecewise-linear award. Real rules will have more interacting conditions, which can make either form harder or easier.
