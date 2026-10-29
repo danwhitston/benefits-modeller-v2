@@ -87,9 +87,19 @@ def test_emr_upper_bound():
     check_household(result, 100)
 
 
-def test_emr_timeout_is_unknown():
+def test_emr_timeout_is_unknown(monkeypatch):
+    # A solver that runs out of time answers unknown. Stubbing that answer keeps
+    # the test deterministic: a real 1 ms limit may be enough on a fast runner.
+    limits = []
+
+    def out_of_time(solver, script, timeout_ms):
+        limits.append(timeout_ms)
+        return solvers.SolverResult("unknown", None, "stub")
+
+    monkeypatch.setattr(solvers, "run", out_of_time)
     module, bounds = _loaded()
-    result = queries.emr(module, bounds, timeout_ms=1)
+    result = queries.emr(module, bounds, timeout_ms=5_000)
+    assert limits and all(0 < limit <= 5_000 for limit in limits)
     assert result.status == "unknown"
     assert result.rate is None
     assert result.household is None

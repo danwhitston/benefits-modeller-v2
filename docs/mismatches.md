@@ -55,8 +55,9 @@ Regulations, checked 29 October 2026:
 - [Regulation 22(1)(b)](https://www.legislation.gov.uk/uksi/2013/376/regulation/22)
   deducts 55% of the earned income above the work allowance. This project
   reads that deduction as an amount whose calculation regulation 6(1)
-  rounds, a reading the project owner confirmed on 29 October 2026, so the
-  rules round it and the award follows from the rounded figure.
+  rounds, a reading the project adopted on 29 October 2026, pending review by
+  a benefits specialist (see "No specialist review" in `docs/model-gaps.md`),
+  so the rules round it and the award follows from the rounded figure.
 
 Other sources.
 [DWP staff guidance deposited in Parliament](https://data.parliament.uk/DepositedPapers/Files/DEP2024-0673/196_Work_Allowance_and_Earnings_Taper_rate.pdf)
@@ -73,7 +74,9 @@ claimant). This class of mismatch then becomes our error, and
 `bm.checks.rounding_stage_difference` is deleted.
 
 Count, 29 October 2026: `test_checks_exact_match` (98 households,
-`n_random=50, seed=1`) finds 3 mismatches, and all 3 are in this class. All
+`n_random=50, seed=1`) finds 3 mismatches, and all 3 are in this class. The
+test also checks the count and the three households below, so a change to the
+draw or the rules that changes them fails it until this entry is updated. All
 three have limited capability for work, and earnings above the work allowance
 that end in a half penny when taken at 55%. One is the table row above, with no
 housing costs element and the £710.00 work allowance. Two have a housing costs

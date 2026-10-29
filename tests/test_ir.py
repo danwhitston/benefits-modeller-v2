@@ -18,6 +18,16 @@ def test_load_rejects_unknown_version(tmp_path):
         ir.load(path)
 
 
+@pytest.mark.parametrize("version", [False, 0.0, "0", None])
+def test_load_rejects_a_version_equal_to_0_but_not_the_integer(tmp_path, version):
+    data = json.loads(UC_IR.read_text())
+    data["bm_ir_version"] = version
+    path = tmp_path / "v.bm-ir.json"
+    path.write_text(json.dumps(data))
+    with pytest.raises(ir.UnsupportedIrVersion):
+        ir.load(path)
+
+
 def test_load_uc_scope():
     scope = ir.load(UC_IR)
     assert scope.name == "UniversalCredit"

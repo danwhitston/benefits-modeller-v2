@@ -292,7 +292,8 @@ def test_run_raises_when_rules_give_no_value():
 @pytest.mark.slow
 def test_checks_exact_match():
     _, bounds = _loaded()
-    mismatches = checks.run(households.generate(bounds, n_random=50, seed=1))
+    sample = households.generate(bounds, n_random=50, seed=1)
+    mismatches = checks.run(sample)
     unexplained = [
         m
         for m in mismatches
@@ -303,3 +304,16 @@ def test_checks_exact_match():
         "rounding-stage difference logged in docs/mismatches.md"
     )
     assert unexplained == []
+    # docs/mismatches.md gives this count and lists these households. If the
+    # draw or the rules change, this fails, and the log is updated with it.
+    assert len(sample) == 98
+    logged = [
+        household(start, earned, aged_25=True, lcw=True, housing=housing)
+        for start, earned, housing in (
+            (date(2026, 5, 1), 71_010, 0),
+            (date(2026, 5, 1), 42_710, 50_000),
+            (date(2026, 12, 12), 192_090, 48_565),
+        )
+    ]
+    by_inputs = lambda h: sorted(h.items())  # noqa: E731
+    assert sorted((m.household for m in mismatches), key=by_inputs) == sorted(logged, key=by_inputs)
