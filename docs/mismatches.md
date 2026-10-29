@@ -24,18 +24,28 @@ deliberate difference, or interpretation difference.
 | Award | £424.84 | £424.84 | £424.85 |
 
 Arithmetic. Earnings above the £710.00 work allowance are £0.10, and 55% of
-that is 5.5p.
+that is 5.5p. Three readings are on record:
 
-- Our rules round the deduction: 5.5p becomes 6p, and £424.90 - £0.06 = £424.84.
-- PolicyEngine UK rounds only the award: £424.90 - £0.055 = £424.845, which
-  becomes £424.85.
+- (a) Round each calculated amount (our rules). The deduction of 5.5p becomes
+  6p, and £424.90 - £0.06 = £424.84.
+- (b) Round only the final award (PolicyEngine UK). £424.90 - £0.055 =
+  £424.845, which becomes £424.85.
+- (c) Resolve half-penny ties in the claimant's favour: a deduction with a
+  fraction of exactly half a penny is rounded down, and an addition is rounded
+  up. The deduction of 5.5p becomes 5p, and £424.90 - £0.05 = £424.85.
+
+In this skeleton, (c) gives the same figures as (b), because there is a single
+fractional step, so the skeleton cannot tell them apart. They diverge only when
+several fractional amounts combine, which is expected in later milestones.
 
 Regulations, checked 29 October 2026:
 
 - [Regulation 6(1)](https://www.legislation.gov.uk/uksi/2013/376/regulation/6)
   of the Universal Credit Regulations 2013 rounds a fraction of a penny arising
   in "the calculation of an amount" for the purposes of the Regulations. It
-  does not say at which stage.
+  does not say at which stage. Its literal wording, that a fraction of half a
+  penny or more is "treated as a penny", supports reading (a). No provision
+  establishing (c) has been checked.
 - [Regulation 22(1)(b)](https://www.legislation.gov.uk/uksi/2013/376/regulation/22)
   deducts 55% of the earned income above the work allowance. Our rules read
   that deduction as a calculation of an amount, so they round it, and the award
@@ -47,7 +57,7 @@ result as an amount to be taken into account, without stating a rounding
 stage. How DWP's own system rounds cannot be observed from outside.
 
 Decision: the project keeps rounding the deduction. The question stays open.
-If it is settled the other way, `rounding_stage_difference` and this entry are
+If it is settled in favour of (b) or (c), `rounding_stage_difference` and this entry are
 the only things to change.
 
 Count: in `test_checks_exact_match` (73 households, `n_random=50, seed=1`),
