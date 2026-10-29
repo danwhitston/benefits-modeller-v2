@@ -43,8 +43,8 @@ class Mismatch:
     catala: int
     z3: int
     policyengine: int
-    # Every output of the scope from Catala, for triage (the work allowance
-    # among them). Not in the Task 6 brief's interface.
+    # Every output of the scope from Catala, for triage. The work allowance
+    # among them is what `rounding_stage_difference` subtracts from earnings.
     catala_outputs: dict[str, int | bool] = field(default_factory=dict)
 
 
@@ -70,9 +70,11 @@ def rounding_stage_difference(
 
     Our rules round the regulation 22(1)(b) deduction to the penny, reading
     regulation 6(1)'s "the calculation of an amount" as that step. PolicyEngine
-    UK rounds only the final award. The two differ only when the deduction ends
-    in exactly half a penny, which our rules round up, so the award is 1p lower
-    than PolicyEngine's. `catala` is Catala's outputs for the household; the
+    UK does not round: it returns an unrounded float, and
+    `policyengine._to_pence` rounds that once, half up, which rounds only the
+    final award. The two differ only when the deduction ends in exactly half a
+    penny, which our rules round up, so the award is 1p lower than
+    PolicyEngine's rounded figure. `catala` is Catala's outputs for the household; the
     work allowance is read from them.
     """
     above = int(household["earned_income"]) - int(catala["work_allowance"])

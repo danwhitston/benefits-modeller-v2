@@ -17,6 +17,12 @@ Simplifications, stated so that nobody reads more into the rules than is there:
 * The LCWRA element, the child element and every other element are left out.
   The maximum amount is the standard allowance alone.
 * Unearned income is not modelled.
+* `earned_income` is Universal Credit earned income as regulation 55 defines
+  it, not gross pay: employed earnings after deducting income tax, primary
+  Class 1 National Insurance contributions, relievable pension contributions
+  and payroll giving
+  ([regulation 55(5)](https://www.legislation.gov.uk/uksi/2013/376/regulation/55),
+  checked 29 October 2026).
 
 Catala's English syntax writes money with the `$` symbol. In this file the unit
 is pounds sterling.
@@ -47,7 +53,7 @@ Regulation 36 gives the amount of the standard allowance. The rates below were
 substituted by [S.I. 2026/113](https://www.legislation.gov.uk/uksi/2026/113),
 with effect for assessment periods starting on or after 6 April 2026.
 
-"single claimant aged under 25 £338.58"
+"single claimant aged under 25": £338.58, in the amount column
 ([regulation 36](https://www.legislation.gov.uk/uksi/2013/376/regulation/36),
 checked 29 October 2026)
 
@@ -58,7 +64,7 @@ scope UniversalCredit:
     consequence equals $338.58
 ```
 
-"single claimant aged 25 or over £424.90"
+"single claimant aged 25 or over": £424.90, in the amount column
 ([regulation 36](https://www.legislation.gov.uk/uksi/2013/376/regulation/36),
 checked 29 October 2026)
 
@@ -75,7 +81,8 @@ Regulation 22(2) gives the amount of the work allowance. The higher amount is
 the one substituted by [S.I. 2026/148](https://www.legislation.gov.uk/uksi/2026/148)
 in the version of the regulation dated 6 April 2026.
 
-"Single claimant ... has limited capability for work £710.00"
+Single claimant who "has limited capability for work": £710.00, in the
+higher work allowance column
 ([regulation 22](https://www.legislation.gov.uk/uksi/2013/376/regulation/22),
 checked 29 October 2026)
 
@@ -104,7 +111,9 @@ scope UniversalCredit:
 ## Earnings deduction
 
 The deduction rate is 55%, as regulation 22(1)(b) reads in the version dated
-6 April 2026.
+6 April 2026. The figure was substituted for 63% by regulation 2(1) of
+[S.I. 2021/1283](https://www.legislation.gov.uk/uksi/2021/1283), in force from
+24 November 2021 (checked 29 October 2026).
 
 "55% of the amount by which that earned income exceeds the work allowance"
 ([regulation 22](https://www.legislation.gov.uk/uksi/2013/376/regulation/22),

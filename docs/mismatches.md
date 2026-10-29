@@ -1,12 +1,13 @@
 # Mismatch log
 
 Each entry is a class of household where PolicyEngine UK's award differs from
-our rules. `bm.checks.run` returns every such household. None is filtered out.
-An entry gives the household, the three figures (Catala, Z3, PolicyEngine),
-the regulation, the classification and the date.
+our rules, triaged against the regulation text. `bm.checks.run` returns every
+such household. None is filtered out. An entry gives the household, the three
+figures (Catala, Z3, PolicyEngine), the regulation, the classification and the
+date.
 
-Classifications: our error (fixed, not logged here), PolicyEngine's error,
-deliberate difference, or interpretation difference.
+Classifications: our error (logged, then fixed in the rules), PolicyEngine's
+error, deliberate difference, or interpretation difference.
 
 ## 1. Rounding stage of the earnings deduction
 
@@ -19,17 +20,21 @@ deliberate difference, or interpretation difference.
 - **Worked household:** assessment period from 1 May 2026, aged 25 or over,
   limited capability for work, earned income £710.10 a month.
 
-| | Catala | Z3 | PolicyEngine UK |
+| | Catala | Z3 | PolicyEngine UK, rounded once by bm |
 |---|---|---|---|
 | Award | £424.84 | £424.84 | £424.85 |
+
+PolicyEngine UK does not round the award. It returns an annual float, here
+£424.845 a month to within float precision. The check rounds that figure once, to the nearest penny with halves rounded up
+(`bm.policyengine._to_pence`), which is reading (b) below.
 
 Arithmetic. Earnings above the £710.00 work allowance are £0.10, and 55% of
 that is 5.5p. Three readings are on record:
 
 - (a) Round each calculated amount (our rules). The deduction of 5.5p becomes
   6p, and £424.90 - £0.06 = £424.84.
-- (b) Round only the final award (PolicyEngine UK). £424.90 - £0.055 =
-  £424.845, which becomes £424.85.
+- (b) Round only the final award (PolicyEngine UK's figure, as the check
+  rounds it). £424.90 - £0.055 = £424.845, which becomes £424.85.
 - (c) Resolve half-penny ties in the claimant's favour: a deduction with a
   fraction of exactly half a penny is rounded down, and an addition is rounded
   up. The deduction of 5.5p becomes 5p, and £424.90 - £0.05 = £424.85.
@@ -43,13 +48,14 @@ Regulations, checked 29 October 2026:
 - [Regulation 6(1)](https://www.legislation.gov.uk/uksi/2013/376/regulation/6)
   of the Universal Credit Regulations 2013 rounds a fraction of a penny arising
   in "the calculation of an amount" for the purposes of the Regulations. It
-  does not say at which stage. Its literal wording, that a fraction of half a
-  penny or more is "treated as a penny", supports reading (a). No provision
-  establishing (c) has been checked.
+  sets the direction of rounding (half a penny or more is "treated as a
+  penny"), but not the stage at which it applies, so its wording fits (a) and
+  (b) equally. No provision establishing (c) has been checked.
 - [Regulation 22(1)(b)](https://www.legislation.gov.uk/uksi/2013/376/regulation/22)
-  deducts 55% of the earned income above the work allowance. Our rules read
-  that deduction as a calculation of an amount, so they round it, and the award
-  follows from the rounded figure.
+  deducts 55% of the earned income above the work allowance. This project
+  reads that deduction as an amount whose calculation regulation 6(1)
+  rounds, a reading the project owner confirmed on 29 October 2026, so the
+  rules round it and the award follows from the rounded figure.
 
 Other sources.
 [DWP staff guidance deposited in Parliament](https://data.parliament.uk/DepositedPapers/Files/DEP2024-0673/196_Work_Allowance_and_Earnings_Taper_rate.pdf)
@@ -70,7 +76,7 @@ Count, 29 October 2026: `test_checks_exact_match` (73 households,
 the table row above. Three are random households without LCW, where all the
 earnings count:
 
-| Start | Earnings | Age 25 or over | Catala | Z3 | PolicyEngine UK |
+| Start | Earnings | Age 25 or over | Catala | Z3 | PolicyEngine UK, rounded once by bm |
 |---|---|---|---|---|---|
 | 2026-08-27 | £327.10 | yes | £244.99 | £244.99 | £245.00 |
 | 2027-01-14 | £305.50 | no | £170.55 | £170.55 | £170.56 |
