@@ -222,15 +222,18 @@ def test_timing_matches_brute_force(aged_25, housing, total):
         assert w.award == reference_uc.award(e, aged_25, w.inputs["has_lcw"], housing)
 
 
-def _forall_script(total: int, aged_25: bool, housing: int, relation: str, gain: int) -> str:
+def _forall_script(
+    total: int, aged_25: bool, housing: int, relation: str, gain: int, first: int | None = None
+) -> str:
     """A split exists such that, for every LCW finding, `gain(j) <relation> gain`.
 
     Built by hand from the module's functions, with `has_lcw` bound by
-    `forall`, so it shares no encoding with `timing`.
+    `forall`, so it shares no encoding with `timing`. `first`, if given, fixes
+    the split's earnings in the first period.
     """
     module = _module()
     script = Script(module)
-    e1 = script.declare("test.e1", "Int")
+    e1 = script.declare("test.e1", "Int", None if first is None else literal("Int", first))
     e2 = script.declare("test.e2", "Int", f"(- {literal('Int', total)} {e1})")
     for e in (e1, e2):
         script.bound(e, SPECS["earned_income"].bound)
@@ -265,13 +268,26 @@ def _forall_script(total: int, aged_25: bool, housing: int, relation: str, gain:
 
 
 def test_timing_forall_cross_check():
-    total, (aged_25, housing) = TOTALS[0], HOUSEHOLDS[0]
+    # A household whose robust gain is positive, so that the cross-check
+    # tests an optimum above the even split's gain of 0.
+    total, (aged_25, housing) = TOTALS[0], HOUSEHOLDS[1]
+    assert _brute_force(total, aged_25, housing)[0] == 1
     result = timing(_module(), SPECS, fixed=_fixed(aged_25, housing), total=total, rules=None)
     assert result.status == "optimal"
-    for relation, expected in ((">", "unsat"), (">=", "sat")):
-        text = _forall_script(total, aged_25, housing, relation, result.gain)
-        for solver in ("z3", "cvc5"):
-            assert solvers.run(solver, text, 60_000).status == expected, (solver, relation)
+    assert result.gain == 1
+    # Neither solver finds a split whose worst case beats the optimum.
+    better = _forall_script(total, aged_25, housing, ">", result.gain)
+    for solver in ("z3", "cvc5"):
+        assert solvers.run(solver, better, 60_000).status == "unsat", solver
+    # Z3 finds a split that reaches it. cvc5 answers unknown to that search
+    # (cvc5 1.4.2, 29 October 2026), so it checks the split of the witness.
+    reach = _forall_script(total, aged_25, housing, ">=", result.gain)
+    assert solvers.run("z3", reach, 60_000).status == "sat"
+    (first,) = {
+        w.inputs["earned_income"] for w in result.witnesses if (w.kind, w.period) == ("split", 1)
+    }
+    at_witness = _forall_script(total, aged_25, housing, ">=", result.gain, first)
+    assert solvers.run("cvc5", at_witness, 60_000).status == "sat"
 
 
 def test_timing_with_lcw_fixed_has_one_case():
