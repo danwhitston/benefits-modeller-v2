@@ -125,7 +125,10 @@ A scope that declares a sub-scope (`p1 scope Sub`) and defines its inputs
   a `var` node naming that definition.
 
 A scope declared twice as a sub-scope (`p1 scope Sub` and `p2 scope Sub`) is
-inlined twice, once under each name. Only this form is inlined. A call to a
+inlined twice, once under each name. A sub-scope's inputs must be `input`
+variables: a `context` variable is a default term, not a bm-ir type, so it stops
+the export (`TDefault`) in a sub-scope as in the exported scope. Only this form
+is inlined. A call to a
 scope inside an expression (`output of Sub with {...}`), a scope from another
 module and any other application stay unsupported.
 

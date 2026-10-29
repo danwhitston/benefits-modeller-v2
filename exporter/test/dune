@@ -166,3 +166,20 @@
  (alias runtest)
  (action
   (run %{exe:check.exe} contains %{dep:subscope_direct.expected.txt} %{dep:subscope_direct.out.txt})))
+
+; A context input of a sub-scope is a default term, which bm-ir does not take
+; as an input: the export must fail, as it does for the top scope.
+
+(rule
+ (deps ../plugin/bm_export.cmxs)
+ (action
+  (with-accepted-exit-codes
+   (not 0)
+   (with-outputs-to
+    subscope_context.out.txt
+    (run catala bm-export --plugin-dir ../plugin --no-stdlib --color=never -s Context %{dep:subscope_context.catala_en})))))
+
+(rule
+ (alias runtest)
+ (action
+  (run %{exe:check.exe} contains %{dep:subscope_context.expected.txt} %{dep:subscope_context.out.txt})))

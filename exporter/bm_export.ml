@@ -289,12 +289,14 @@ let rec scope_body_json ~scopes ~prefix ~args defs (body : expr scope_body) =
           | EStructAccess { e = EVar s, _; field; _ } when Var.equal s input_struct -> field
           | _ -> unsupported "DestructuringInputStruct (not a plain input)" pos
         in
+        (* An input must have a bm-ir type, in a sub-scope as in the top
+           scope. This refuses a context input, which is a default term
+           ([TDefault]). *)
+        let ty = typ_name sl.scope_let_typ in
         let bound = Var.Map.add v (Name name) bound in
         match args with
         | None ->
-          let input =
-            `Assoc ["name", `String name; "type", `String (typ_name sl.scope_let_typ)]
-          in
+          let input = `Assoc ["name", `String name; "type", `String ty] in
           walk bound (input :: inputs) defs rest
         | Some (caller_bound, fields) ->
           let arg =
