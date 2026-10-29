@@ -42,10 +42,16 @@ controlled_by = ["decision_maker"]
 checked_by = "assessment"
 
 # The housing costs element is taken as already worked out. The landlord sets
-# the rent it rests on. The bound is a modelling range, not a legal limit.
+# the rent it rests on. The maximum keeps every modelled household below the
+# benefit cap, which is not modelled: regulation 80A of the Universal Credit
+# Regulations 2013 sets the annual limit for a single claimant outside Greater
+# London, with no child, at 14,753 pounds, divided by 12 (1,229.42 pounds a
+# month, to the penny). The largest standard allowance is 424.90 pounds, so
+# the largest element is 1,229.42 - 424.90 = 804.52, rounded down to 804 pounds
+# (checked 29 October 2026, legislation.gov.uk). The London limit is higher.
 [inputs.housing_costs_element]
 type = "money"
 min = "0.00"
-max = "3000.00"
+max = "804.00"
 controlled_by = ["landlord"]
 checked_by = "documentary_evidence"

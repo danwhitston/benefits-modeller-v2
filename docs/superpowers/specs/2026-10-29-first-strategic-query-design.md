@@ -77,13 +77,13 @@ The file becomes the one list of the scope's inputs. Every input appears, Boolea
 | `earned_income` | £0 to £10,000 | employer, claimant | third_party_data |
 | `aged_25_or_over` | | nobody | documentary_evidence |
 | `has_lcw` | | decision_maker | assessment |
-| `housing_costs_element` | £0 to £3,000 | landlord | documentary_evidence |
+| `housing_costs_element` | £0 to £804 | landlord | documentary_evidence |
 
 Notes, written into the file as comments:
 
 - The assessment period start follows from the date of claim, which the claimant chooses.
 - Employed earnings arrive through HMRC's Real Time Information feed. Their timing and amount can be shaped by the employer or by the claimant. Self-employed earnings, when they are added, are a separate input with `checked_by = "claimant_declaration"`, because they are checked differently.
-- The bound of £3,000 a month on the housing costs element is a modelling range, not a legal limit.
+- The bound of £804 a month on the housing costs element keeps every modelled household below the benefit cap, which is not modelled (regulation 80A of the Universal Credit Regulations 2013: £14,753 a year outside Greater London, £1,229.42 a month, less the £424.90 standard allowance, rounded down; checked 29 October 2026).
 
 ### 3. Refactors, done first with behaviour unchanged
 

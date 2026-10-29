@@ -28,7 +28,7 @@ Each entry gives the gap, its source, its effect on findings, and where it might
 - **Unearned income and capital.** Unearned income is zero, and capital is assumed to be below the limit.
 - **Earnings.** `earned_income` is earned income as regulation 55 defines it, net of income tax, National Insurance and pension contributions. Gross pay, tax and National Insurance are not modelled, so findings cannot speak about gross pay or net household income.
 - **Self-employment.** No self-employed earnings and no minimum income floor, so the "gainful self-employment" finding cannot be a judgement point yet.
-- **Benefit cap.** Not modelled, nor its earnings exemption.
+- **Benefit cap.** Not modelled, nor its earnings exemption. The housing costs element is bounded at 804.00 pounds a month so that no modelled household can reach the cap: the annual limit for a single claimant outside Greater London with no child is 14,753 pounds, divided by 12 (1,229.42 pounds a month), under [regulation 80A](https://www.legislation.gov.uk/uksi/2013/376/regulation/80A) of the Universal Credit Regulations 2013, checked 29 October 2026. With no earnings the award is the standard allowance (at most 424.90 pounds) plus the element, which stays below that figure. Findings hold only below that bound.
 
 ## Housing
 

@@ -72,13 +72,20 @@ stays open. If it is settled in favour of (b) or (c), the rules in
 claimant). This class of mismatch then becomes our error, and
 `bm.checks.rounding_stage_difference` is deleted.
 
-Count, 29 October 2026: `test_checks_exact_match` (73 households,
-`n_random=50, seed=1`) finds 4 mismatches, and all 4 are in this class. One is
-the table row above. Three are random households without LCW, where all the
-earnings count:
+Count, 29 October 2026: `test_checks_exact_match` (98 households,
+`n_random=50, seed=1`) finds 3 mismatches, and all 3 are in this class. All
+three have limited capability for work, and earnings above the work allowance
+that end in a half penny when taken at 55%. One is the table row above, with no
+housing costs element and the £710.00 work allowance. Two have a housing costs
+element, so the lower work allowance of £427.00 applies (regulation 22(2)):
+the Catala test row with a £500.00 element, and one random household.
 
-| Start | Earnings | Age 25 or over | Catala | Z3 | PolicyEngine UK, rounded once by bm |
-|---|---|---|---|---|---|
-| 2026-08-27 | £327.10 | yes | £244.99 | £244.99 | £245.00 |
-| 2027-01-14 | £305.50 | no | £170.55 | £170.55 | £170.56 |
-| 2027-03-23 | £283.90 | yes | £268.75 | £268.75 | £268.76 |
+| Start | Earnings | Age 25 or over | LCW | Housing costs element | Work allowance | Catala | Z3 | PolicyEngine UK, rounded once by bm |
+|---|---|---|---|---|---|---|---|---|
+| 2026-05-01 | £710.10 | yes | yes | £0.00 | £710.00 | £424.84 | £424.84 | £424.85 |
+| 2026-05-01 | £427.10 | yes | yes | £500.00 | £427.00 | £924.84 | £924.84 | £924.85 |
+| 2026-12-12 | £1,920.90 | yes | yes | £485.65 | £427.00 | £88.90 | £88.90 | £88.91 |
+
+The housing costs element is bounded at £804.00 a month in
+`rules/uc.inputs.toml`, so that no modelled household reaches the benefit cap,
+which the rules do not model. See the benefit cap in `docs/model-gaps.md`.

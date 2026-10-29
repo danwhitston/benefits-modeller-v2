@@ -71,16 +71,35 @@ LAST_PENNY = {
     (False, False): 61_560,
     (False, True): 132_560,
 }
+# With a housing costs element of 500.00 the maximum amount rises by 50,000
+# pence and the work allowance with LCW falls to 427.00:
+# - 25 or over: maximum 924.90, so the deduction must reach 924.90, which needs
+#   55% x 1,681.63 = 924.8965 -> 924.90 (55% x 1,681.62 = 924.891 -> 924.89).
+#   The earnings are that plus the allowance: 1,681.63 + 427.00 with LCW.
+# - under 25: maximum 838.58, which needs 55% x 1,524.69 = 838.5795 -> 838.58
+#   (55% x 1,524.68 = 838.574 -> 838.57); 1,524.69 + 427.00 with LCW.
+LAST_PENNY_HOUSING = 50_000
+LAST_PENNY_WITH_HOUSING = {
+    (True, True): 42_700 + 168_163,
+    (True, False): 168_163,
+    (False, False): 152_469,
+    (False, True): 42_700 + 152_469,
+}
 
 
-@pytest.mark.parametrize(("aged_25", "lcw"), list(LAST_PENNY))
-def test_last_penny_earnings(aged_25, lcw):
+@pytest.mark.parametrize(("aged_25", "lcw", "housing"), [
+    (*key, 0) for key in LAST_PENNY
+] + [(*key, LAST_PENNY_HOUSING) for key in LAST_PENNY_WITH_HOUSING])
+def test_last_penny_earnings(aged_25, lcw, housing):
     module, bounds = _loaded()
-    found = households.last_penny_earnings(module, bounds, aged_25, lcw)
+    expected = (LAST_PENNY if housing == 0 else LAST_PENNY_WITH_HOUSING)[(aged_25, lcw)]
+    found = households.last_penny_earnings(
+        module, bounds, aged_25, lcw, housing_costs_element=housing
+    )
     assert type(found) is int
-    assert found == LAST_PENNY[(aged_25, lcw)]
-    at = household(households.TABLE_START, found, aged_25, lcw)
-    below = household(households.TABLE_START, found - 1, aged_25, lcw)
+    assert found == expected
+    at = household(households.TABLE_START, found, aged_25, lcw, housing)
+    below = household(households.TABLE_START, found - 1, aged_25, lcw, housing)
     assert evaluate.outputs(module, at)["award"] == 0
     assert evaluate.outputs(module, below)["award"] == 1
 
@@ -120,9 +139,16 @@ def test_generate_composition():
                 assert has(households.TABLE_START, e, aged_25, lcw)
     random_part = generated[-50:]
     for h in random_part:
-        top = LAST_PENNY[(h["aged_25_or_over"], h["has_lcw"])] + households.RANDOM_MARGIN
+        module, bounds = _loaded()
+        zero = households.last_penny_earnings(
+            module,
+            bounds,
+            h["aged_25_or_over"],
+            h["has_lcw"],
+            housing_costs_element=h["housing_costs_element"],
+        )
+        top = zero + households.RANDOM_MARGIN
         assert h["earned_income"] <= top
-        assert h["housing_costs_element"] == 0
     # Most random households reach the taper; the margin keeps some past it.
     awards = [evaluate.outputs(module, h)["award"] for h in random_part]
     assert sum(a > 0 for a in awards) >= 40

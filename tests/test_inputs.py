@@ -74,7 +74,7 @@ def test_bounds_values():
     assert result["assessment_period_start"] == inputs.Bound(
         "date", days(date(2026, 4, 6)), days(date(2027, 4, 5))
     )
-    assert result["housing_costs_element"] == inputs.Bound("money", 0, 300_000)
+    assert result["housing_costs_element"] == inputs.Bound("money", 0, 80_400)
     assert set(result) == {"earned_income", "assessment_period_start", "housing_costs_element"}
 
 
