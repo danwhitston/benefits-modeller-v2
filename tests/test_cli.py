@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pytest
 
-from bm import cli, inputs, ir, provenance, report, solvers
+from bm import cli, inputs, ir, provenance, report, solvers, strategic
 from bm.coverage import CoverageFinding
 from bm.ir import Pos, Var
 from bm.queries import EmrResult
@@ -595,3 +595,43 @@ def test_text_report_ends_with_the_model_gaps_pointer_and_has_the_strategic_sect
     assert "Timing gain" in text and "Value of the decision maker" in text
     unknown = report.to_text(make_report(timing=make_timing("unknown", None, None, "unknown")))
     assert unknown.splitlines()[1].startswith("UNKNOWN")  # near the top, before any section
+
+
+def test_replay_runs_the_rules_that_the_provenance_describes(tmp_path: Path, capsys, monkeypatch):
+    import shutil
+
+    copy = tmp_path / "rules"
+    shutil.copytree(ROOT / "rules", copy)  # keeps modification times, so the IR is not stale
+    git(tmp_path, "init", "-q")
+    seen = {}
+
+    def stub(result):
+        def query(*args, rules=None, **kwargs):
+            seen["rules"] = rules
+            return result
+
+        return query
+
+    monkeypatch.setattr(strategic, "timing", stub(make_timing()))
+    monkeypatch.setattr(strategic, "judgement_value", stub(make_judgement()))
+    for argv in (("timing",), ("judgement", "has_lcw")):
+        seen.clear()
+        code = cli.main(["query", argv[0], UC_IR, *argv[1:], "--inputs", UC_BOUNDS,
+                         "--rules", str(copy)])
+        assert code == 0, capsys.readouterr().err
+        assert seen["rules"] == copy / "uc.catala_en"
+        assert str(copy) not in capsys.readouterr().err
+
+
+def test_a_rules_directory_without_the_rules_file_is_refused(tmp_path: Path, capsys, monkeypatch):
+    def must_not_run(*args, **kwargs):
+        raise AssertionError("the query ran")
+
+    monkeypatch.setattr(strategic, "timing", must_not_run)
+    monkeypatch.setattr(strategic, "judgement_value", must_not_run)
+    for argv in (("timing",), ("judgement", "has_lcw")):
+        code = cli.main(["query", argv[0], UC_IR, *argv[1:], "--inputs", UC_BOUNDS,
+                         "--rules", str(tmp_path)])
+        err = capsys.readouterr().err
+        assert code == 1
+        assert err.startswith("bm:") and "uc.catala_en" in err and err.count("\n") == 1

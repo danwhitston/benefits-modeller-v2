@@ -41,6 +41,7 @@ from bm.translate import SmtModule
 
 UNITS = "money in pence; dates as days since 1970-01-01"
 MISMATCH_DOC = "docs/mismatches.md"
+RULES_FILE = "uc.catala_en"
 MODEL_GAPS_LINE = "Model gaps that limit these findings: docs/model-gaps.md"
 TIMING_INPUT = "earned_income"
 JUDGEMENT_POINT = "has_lcw"
@@ -97,6 +98,18 @@ def differential(
     return Differential(len(generated), seed, explained, unexplained)
 
 
+def rules_file(rules: Path) -> Path:
+    """The rules file in the directory `rules`, which replay runs through Catala.
+
+    The provenance block describes the same directory, so the replay must
+    read the same file. Raises `FileNotFoundError` if it is missing.
+    """
+    file = Path(rules) / RULES_FILE
+    if not file.is_file():
+        raise FileNotFoundError(f"no {RULES_FILE} in the rules directory {rules}")
+    return file
+
+
 def build(
     ir_path: Path,
     inputs_path: Path,
@@ -107,6 +120,7 @@ def build(
     timeout_ms: int = 60_000,
 ) -> Report:
     # First, so that an IR that does not match the rules fails before the slow checks.
+    replay_rules = rules_file(rules)
     prov = provenance.collect(rules, ir_path)
     scope = ir.load(ir_path)
     module = translate.translate(scope)
@@ -122,9 +136,9 @@ def build(
         differential=differential(module, bounds, n_random, seed),
         provenance=prov,
         specs=specs,
-        timing=strategic.timing(module, specs, timeout_ms=timeout_ms),
+        timing=strategic.timing(module, specs, rules=replay_rules, timeout_ms=timeout_ms),
         judgement=strategic.judgement_value(
-            module, specs, point=JUDGEMENT_POINT, timeout_ms=timeout_ms
+            module, specs, point=JUDGEMENT_POINT, rules=replay_rules, timeout_ms=timeout_ms
         ),
     )
 

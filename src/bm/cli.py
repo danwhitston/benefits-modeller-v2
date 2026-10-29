@@ -218,6 +218,7 @@ def _print_json(args: argparse.Namespace, data: dict, prov) -> None:
 
 
 def _query_timing(args: argparse.Namespace) -> int:
+    rules = report.rules_file(_rules_dir(args))
     prov, module, specs = _load_specs(args)
     result = strategic.timing(
         module,
@@ -226,6 +227,7 @@ def _query_timing(args: argparse.Namespace) -> int:
         fixed=parse_fixed(specs, args.fix),
         total=None if args.total is None else _money("--total", args.total),
         cap=args.cap,
+        rules=rules,
         timeout_ms=args.timeout_ms,
     )
     if args.json:
@@ -236,6 +238,7 @@ def _query_timing(args: argparse.Namespace) -> int:
 
 
 def _query_judgement(args: argparse.Namespace) -> int:
+    rules = report.rules_file(_rules_dir(args))
     prov, module, specs = _load_specs(args)
     result = strategic.judgement_value(
         module,
@@ -243,6 +246,7 @@ def _query_judgement(args: argparse.Namespace) -> int:
         point=args.name,
         start=_date("--start", args.start),
         fixed=parse_fixed(specs, args.fix),
+        rules=rules,
         timeout_ms=args.timeout_ms,
     )
     if args.json:
