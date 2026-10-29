@@ -51,76 +51,6 @@ def test_solver_timeout_is_unknown(solver):
     assert result.model is None
 
 
-def test_z3_maximize():
-    script = """
-(declare-const x Int)
-(assert (<= 0 x 7))
-(maximize x)
-(check-sat)
-"""
-    result = solvers.run("z3", script, 10_000)
-    assert result.status == "sat"
-    assert result.model == {"x": 7}
-
-
-def test_z3_maximize_timeout_is_unknown():
-    script = HARD.replace("(check-sat)", "(maximize x)\n(check-sat)")
-    result = solvers.run("z3", script, 1)
-    assert result.status == "unknown"
-    assert result.model is None
-
-
-def test_z3_maximize_unbounded_is_unknown():
-    # Z3 answers sat with an arbitrary model (x = 0) and reason "unknown".
-    script = "(declare-const x Int)\n(assert (>= x 0))\n(maximize x)\n(check-sat)"
-    result = solvers.run("z3", script, 10_000)
-    assert result.status == "unknown"
-    assert result.model is None
-
-
-def test_z3_maximize_unbounded_nonlinear_is_unknown():
-    script = """
-(declare-const x Int)
-(declare-const y Int)
-(assert (> x 0))
-(assert (= y (* x x)))
-(maximize y)
-(check-sat)
-"""
-    result = solvers.run("z3", script, 1_000)
-    assert result.status == "unknown"
-    assert result.model is None
-
-
-def test_z3_maximize_small_integer_problem_is_sat():
-    script = """
-(declare-const x Int)
-(declare-const y Int)
-(assert (<= 0 x 10))
-(assert (<= 0 y 10))
-(assert (<= (+ x y) 12))
-(maximize (- (* 3 x) y))
-(check-sat)
-"""
-    result = solvers.run("z3", script, 10_000)
-    assert result.status == "sat"
-    assert result.model == {"x": 10, "y": 0}
-
-
-def test_z3_maximize_proved_optimum_is_sat():
-    # A nonlinear objective that Z3 does solve: the optimum must still come back.
-    script = """
-(declare-const x Int)
-(declare-const y Int)
-(assert (and (> x 0) (< x 100000) (> y 0) (< y 100000)))
-(maximize (* x y))
-(check-sat)
-"""
-    result = solvers.run("z3", script, 10_000)
-    assert result.status == "sat"
-    assert result.model == {"x": 99999, "y": 99999}
-
-
 @pytest.mark.parametrize("solver", SOLVERS)
 def test_real_valued_constant_is_an_error(solver):
     with pytest.raises(solvers.SolverError):
@@ -140,6 +70,13 @@ def test_versions():
     # "1.4.2-modified" from the Linux one. Both must be the locked package.
     assert versions["cvc5"].split("-")[0] == version("cvc5")
     assert versions["z3"].startswith("5.")
+
+
+def test_disagreement_message_with_equal_statuses():
+    text = str(solvers.SolverDisagreement(
+        solvers.SolverResult("sat", {}, "z"), solvers.SolverResult("sat", {}, "c"), "ctx"))
+    assert "says sat but cvc5 says sat" not in text and "ctx" in text
+    assert text == "z3 and cvc5 disagree: ctx"
 
 
 def test_disagreement_carries_both_results():
@@ -263,6 +200,39 @@ def test_optimise_unbounded_objective_is_unknown_and_stops(monkeypatch):
     assert result.value is None and result.model is None
     assert result.confirmed is False
     assert calls[0] > 1
+
+
+def test_unbounded_objective_is_unknown_within_the_check_cap():
+    # An objective with no upper bound: the search gallops until the cap.
+    result = solvers.optimise_and_confirm(
+        ["(declare-const x Int)", "(assert (>= x 0))"], "x", "max", timeout_ms=60_000, max_checks=20
+    )
+    assert result.status == "unknown" and result.value is None
+
+
+def test_the_check_cap_counts_z3_checks(monkeypatch):
+    calls = _count_z3_calls(monkeypatch)
+    lines = ["(declare-const x Int)", "(assert (>= x 0))"]
+    solvers.optimise_and_confirm(lines, "x", "max", timeout_ms=60_000, max_checks=5)
+    assert calls[0] == 5
+
+
+def test_a_cap_above_what_the_search_needs_changes_nothing():
+    result = solvers.optimise_and_confirm(BOX, "x", "max", 10_000, max_checks=200)
+    assert result.status == "optimal" and result.value == 7
+
+
+def test_optimise_small_integer_problem():
+    lines = [
+        "(declare-const x Int)",
+        "(declare-const y Int)",
+        "(assert (<= 0 x 10))",
+        "(assert (<= 0 y 10))",
+        "(assert (<= (+ x y) 12))",
+    ]
+    result = solvers.optimise_and_confirm(lines, "(- (* 3 x) y)", "max", 10_000)
+    assert result.status == "optimal" and result.value == 30
+    assert (result.model["x"], result.model["y"]) == (10, 0)
 
 
 def test_optimise_z3_unknown_during_the_search_gives_no_value(monkeypatch):

@@ -375,17 +375,17 @@ def test_check_exit_code_follows_unexplained_mismatches(capsys, monkeypatch):
         "aged_25_or_over": True, "has_lcw": True, "housing_costs_element": 0,
     }
     unexplained = checks.Mismatch(household, 57, 57, 60, {"award": 57, "work_allowance": 0})
-    monkeypatch.setattr(checks, "run", lambda households, module=None: [unexplained])
+    monkeypatch.setattr(checks, "run", lambda households, module=None, rules=None: [unexplained])
     assert cli.main(["check", UC_IR, "--inputs", UC_BOUNDS, "--n-random", "2"]) == 1
     assert "UNEXPLAINED" in capsys.readouterr().out
-    monkeypatch.setattr(checks, "run", lambda households, module=None: [])
+    monkeypatch.setattr(checks, "run", lambda households, module=None, rules=None: [])
     assert cli.main(["check", UC_IR, "--inputs", UC_BOUNDS, "--n-random", "2"]) == 0
 
 
 def test_translator_disagreement_exits_1(capsys, monkeypatch):
     from bm import checks
 
-    def disagree(households, module=None):
+    def disagree(households, module=None, rules=None):
         raise checks.TranslatorDisagreement({"earned_income": 1}, "award: Catala 1, Z3 2")
 
     monkeypatch.setattr(checks, "run", disagree)
@@ -399,7 +399,7 @@ def test_check_on_a_stale_ir_fails_with_the_provenance_error(tmp_path: Path, cap
     os.utime(stale, (1_000_000, 1_000_000))
     from bm import checks
 
-    def must_not_run(households, module=None):
+    def must_not_run(households, module=None, rules=None):
         raise AssertionError("the differential check ran on a stale IR")
 
     monkeypatch.setattr(checks, "run", must_not_run)
@@ -705,3 +705,61 @@ def test_a_rules_directory_without_the_rules_file_is_refused(tmp_path: Path, cap
         err = capsys.readouterr().err
         assert code == 1
         assert err.startswith("bm:") and "uc.catala_en" in err and err.count("\n") == 1
+
+
+def _spy_on_the_differential_check(monkeypatch) -> list[Path]:
+    """Make the differential check run one household, and return the rules files Catala is given.
+
+    Catala runs for real. PolicyEngine UK is replaced by Catala's own award, so
+    there is no mismatch and the test is fast.
+    """
+    from bm import catala_run, households, policyengine
+
+    household = {
+        "assessment_period_start": 20549, "earned_income": 148150,
+        "aged_25_or_over": True, "has_lcw": True, "housing_costs_element": 0,
+    }
+    seen: list[Path] = []
+    real = catala_run.outputs
+
+    def outputs(rules, scope, inputs):
+        seen.append(rules)
+        return real(rules, scope, inputs)
+
+    monkeypatch.setattr(households, "generate", lambda *args, **kwargs: [household])
+    monkeypatch.setattr(catala_run, "outputs", outputs)
+    monkeypatch.setattr(
+        policyengine, "award", lambda h: int(real(ROOT / "rules" / "uc.catala_en",
+                                                  "UniversalCredit", household)["award"])
+    )
+    return seen
+
+
+def _copy_of_the_rules(tmp_path: Path) -> Path:
+    import shutil
+
+    copy = tmp_path / "rules"
+    shutil.copytree(ROOT / "rules", copy)  # keeps modification times, so the IR is not stale
+    git(tmp_path, "init", "-q")
+    return copy
+
+
+def test_report_runs_the_differential_check_on_the_rules_given(tmp_path: Path, capsys, monkeypatch):
+    from bm import coverage, queries
+
+    copy = _copy_of_the_rules(tmp_path)
+    seen = _spy_on_the_differential_check(monkeypatch)
+    monkeypatch.setattr(queries, "emr", lambda *args, **kwargs: EmrResult("unknown", None, None, None, None, None, {}))
+    monkeypatch.setattr(coverage, "check", lambda *args, **kwargs: [])
+    monkeypatch.setattr(strategic, "timing", lambda *args, **kwargs: make_timing())
+    monkeypatch.setattr(strategic, "judgement_value", lambda *args, **kwargs: make_judgement())
+    cli.main(["report", UC_IR, "--inputs", UC_BOUNDS, "--rules", str(copy), "--n-random", "1"])
+    assert seen and set(seen) == {copy / "uc.catala_en"}, capsys.readouterr().err
+
+
+def test_check_runs_the_differential_check_on_the_rules_given(tmp_path: Path, capsys, monkeypatch):
+    copy = _copy_of_the_rules(tmp_path)
+    seen = _spy_on_the_differential_check(monkeypatch)
+    code = cli.main(["check", UC_IR, "--inputs", UC_BOUNDS, "--rules", str(copy), "--n-random", "1"])
+    assert code == 0, capsys.readouterr().err
+    assert seen and set(seen) == {copy / "uc.catala_en"}

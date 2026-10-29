@@ -112,11 +112,14 @@ class Script:
         to SMT terms, typically over another instance's constants. Each input
         still has its own constant. Bounded inputs are kept within the script's
         bounds. When `defined` is true, no obligation holds at the household.
-        Raises `ValueError` for a prefix already used, or an unknown input.
+        Raises `ValueError` for a prefix already used, an unknown input, or an
+        input that is in both `fixed` and `equal`.
         """
         if prefix in self._prefixes:
             raise ValueError(f"prefix {prefix!r} is already used in this script")
         fixed, equal = fixed or {}, equal or {}
+        if both := sorted(set(fixed) & set(equal)):
+            raise ValueError(f"inputs both fixed and made equal to a term: {both}")
         for given in (fixed, equal):
             if unknown := sorted(set(given) - set(self.sorts)):
                 raise ValueError(f"values for unknown inputs {unknown}")
@@ -140,10 +143,14 @@ class Script:
     def declare(self, name: str, sort: str, term: str | None = None) -> str:
         """Declare a constant, equal to `term` if given, and return it quoted.
 
-        Raises `ValueError` if the name is already declared in this script.
+        Raises `ValueError` if the name is already declared in this script, or
+        is the name of one of the module's functions (or its `.defined`
+        companion), which a constant of that name would shadow.
         """
         if name in self._declared:
             raise ValueError(f"{name} is already declared in this script")
+        if name.removesuffix(".defined") in self.module.functions:
+            raise ValueError(f"{name} is the name of a function of the module")
         self._declared.add(name)
         const = quote(name)
         self.add(f"(declare-const {const} {sort})")
