@@ -233,6 +233,7 @@ def test_json_report_keys_and_exact_rate():
     assert data["provenance"]["rules_dirty"] is True
 
 
+@pytest.mark.slow
 def test_report_json_shape(capsys):
     code = cli.main(["report", UC_IR, "--inputs", UC_BOUNDS, "--json", "--n-random", "5"])
     assert code == 0  # every mismatch must be explained by the rounding predicate

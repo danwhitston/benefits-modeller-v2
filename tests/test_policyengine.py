@@ -1,6 +1,8 @@
 from datetime import date
 from pathlib import Path
 
+import pytest
+
 from bm import inputs, ir, policyengine
 
 EPOCH = date(1970, 1, 1)
@@ -35,6 +37,7 @@ def test_pe_mapping_known_household():
     assert policyengine.award(h) == 14_990
 
 
+@pytest.mark.slow
 def test_pe_period_pinned():
     # PolicyEngine UK works in whole years, so two dates in the same tax year
     # must give the same award. This pins how the start date becomes a period.

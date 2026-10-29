@@ -22,6 +22,9 @@ packages = ["src/bm"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = [
+    "slow: runs PolicyEngine UK for more than a few seconds; skipped by `make test-fast`",
+]
 
 [dependency-groups]
 dev = [

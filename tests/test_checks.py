@@ -289,6 +289,7 @@ def test_run_raises_when_rules_give_no_value():
         checks.run([early])
 
 
+@pytest.mark.slow
 def test_checks_exact_match():
     _, bounds = _loaded()
     mismatches = checks.run(households.generate(bounds, n_random=50, seed=1))
