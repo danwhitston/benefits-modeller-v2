@@ -59,6 +59,64 @@ def test_z3_maximize():
     assert result.model == {"x": 7}
 
 
+def test_z3_maximize_timeout_is_unknown():
+    script = HARD.replace("(check-sat)", "(maximize x)\n(check-sat)")
+    result = solvers.run("z3", script, 1)
+    assert result.status == "unknown"
+    assert result.model is None
+
+
+def test_z3_maximize_unbounded_is_unknown():
+    # Z3 answers sat with an arbitrary model (x = 0) and reason "unknown".
+    script = "(declare-const x Int)\n(assert (>= x 0))\n(maximize x)\n(check-sat)"
+    result = solvers.run("z3", script, 10_000)
+    assert result.status == "unknown"
+    assert result.model is None
+
+
+def test_z3_maximize_unbounded_nonlinear_is_unknown():
+    script = """
+(declare-const x Int)
+(declare-const y Int)
+(assert (> x 0))
+(assert (= y (* x x)))
+(maximize y)
+(check-sat)
+"""
+    result = solvers.run("z3", script, 1_000)
+    assert result.status == "unknown"
+    assert result.model is None
+
+
+def test_z3_maximize_small_integer_problem_is_sat():
+    script = """
+(declare-const x Int)
+(declare-const y Int)
+(assert (<= 0 x 10))
+(assert (<= 0 y 10))
+(assert (<= (+ x y) 12))
+(maximize (- (* 3 x) y))
+(check-sat)
+"""
+    result = solvers.run("z3", script, 10_000)
+    assert result.status == "sat"
+    assert result.model == {"x": 10, "y": 0}
+
+
+def test_z3_maximize_proved_optimum_is_sat():
+    # A nonlinear objective that Z3 does solve: the optimum must still come back.
+    script = """
+(declare-const x Int)
+(declare-const y Int)
+(assert (and (> x 0) (< x 100000) (> y 0) (< y 100000)))
+(maximize (* x y))
+(check-sat)
+"""
+    result = solvers.run("z3", script, 10_000)
+    assert result.status == "sat"
+    assert result.model == {"x": 99999, "y": 99999}
+
+
 @pytest.mark.parametrize("solver", SOLVERS)
 def test_real_valued_constant_is_an_error(solver):
     with pytest.raises(solvers.SolverError):

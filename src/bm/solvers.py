@@ -10,7 +10,8 @@ checksum for it.
 Z3 uses `Solver` and `parse_smt2_string`, or `Optimize` when the script holds
 Z3-specific commands such as `(maximize ...)`. cvc5 is never sent those.
 
-A timeout gives status "unknown". Anything else that goes wrong, such as a
+A timeout gives status "unknown". So does a Z3 optimisation that answers sat
+without proving the objective optimal, because that model is not a result. Anything else that goes wrong, such as a
 script that does not parse, raises `SolverError`.
 
 Models cover the declared constants only, as ints and bools. A declared
@@ -33,6 +34,7 @@ _DECLARATION = re.compile(
     rf"\(\s*declare-(?:const|fun)\s+({_SYMBOL})\s+(?:\(\s*\)\s+)?([^\s()]+)\s*\)"
 )
 _Z3_ONLY = re.compile(r"\(\s*(?:maximize|minimize|assert-soft)\b")
+_INTERRUPTED = re.compile(r"cancel|timeout|memout|resource", re.IGNORECASE)
 _SET_LOGIC = re.compile(r"\(\s*set-logic\b")
 
 
@@ -102,6 +104,11 @@ def _run_z3(script: str, timeout_ms: int) -> SolverResult:
         return SolverResult("unsat", None, version)
     if outcome != z3.sat:
         return SolverResult("unknown", None, version)
+    if isinstance(engine, z3.Optimize) and not _proved_optimal(engine):
+        # Z3 can answer sat for an optimisation problem without having proved
+        # the objective optimal (an unbounded objective, a nonlinear one, or a
+        # run cut short). That model is not a result.
+        return SolverResult("unknown", None, version)
 
     model = engine.model()
     values: Model = {}
@@ -114,6 +121,25 @@ def _run_z3(script: str, timeout_ms: int) -> SolverResult:
         else:
             raise SolverError(f"z3 model value for {name} has sort {sort}; expected Int or Bool")
     return SolverResult("sat", values, version)
+
+
+def _proved_optimal(engine: z3.Optimize) -> bool:
+    """Z3 closed the gap on every objective, so the model is an optimum.
+
+    `reason_unknown` is not a reliable signal here: Z3 reports "unknown" next
+    to some optima it has proved. The bounds are: the upper and lower bound of
+    each objective are the same number exactly when the optimum is proved.
+    Unbounded, unproved or infinitesimal bounds are never equal numerals.
+    """
+    if _INTERRUPTED.search(engine.reason_unknown()):
+        return False
+    ref, handle = engine.ctx.ref(), engine.optimize
+    for i in range(len(engine.objectives())):
+        upper = z3.Z3_optimize_get_upper(ref, handle, i)
+        lower = z3.Z3_optimize_get_lower(ref, handle, i)
+        if not (z3.Z3_is_numeral_ast(ref, upper) and z3.Z3_is_eq_ast(ref, upper, lower)):
+            return False
+    return True
 
 
 def _run_cvc5(script: str, timeout_ms: int) -> SolverResult:

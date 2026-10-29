@@ -129,7 +129,7 @@ def outputs(rules: Path, scope: str, inputs: dict[str, int | bool]) -> dict[str,
     if done.returncode != 0:
         # Exit code 123 with "During evaluation" is Catala's runtime error. Anything
         # else, such as a type error or malformed input, is a bug in this call.
-        if "During evaluation" in done.stderr:
+        if done.returncode == 123 and "During evaluation" in done.stderr:
             raise CatalaRuntimeError(" ".join(done.stderr.split()))
         raise RuntimeError(f"catala interpret failed ({done.returncode}): {done.stderr.strip()}")
     result = json.loads(done.stdout, parse_float=Decimal, parse_int=int)
