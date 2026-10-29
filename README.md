@@ -6,24 +6,27 @@ Early stage. The first milestone runs end to end for a thin slice of Universal C
 
 ## Running it
 
-The versions used and tested on 29 October 2026 are Catala 1.3.0 on OCaml 5.3.0, and Python 3.14.
+The versions used and tested on macOS on 29 October 2026 are Catala 1.3.0 on OCaml 5.3.0, and Python 3.14. The steps have not yet been run on Linux. Timings below were measured that day on an Apple Silicon Mac with warm caches; a first build with cold opam caches takes longer.
 
 1. Install opam and the libraries Catala needs.
-   - Mac: `brew install opam gmp pkgconf ninja`
+   - Mac: `brew install opam gmp pkgconf ninja`. The Xcode command-line tools are also needed (`xcode-select --install`).
    - Ubuntu, including WSL2: `sudo apt install opam libgmp-dev pkg-config ninja-build`
-2. Set up opam and a switch inside the repository (the first build takes a while):
+2. Set up opam and a switch inside the repository (about 2 minutes). Skip `opam init` if opam is already set up.
    ```
    opam init --bare --no-setup
-   opam switch create . ocaml-base-compiler.5.3.0
-   opam install catala.1.3.0
+   opam switch create . ocaml-base-compiler.5.3.0 -y
+   opam install catala.1.3.0 -y
    ```
+   If opam's sandbox (bubblewrap) fails on Linux, for example under AppArmor limits on user namespaces on native Ubuntu, use `opam init --bare --no-setup --disable-sandboxing`, as CI does.
 3. Install the Python dependencies with [uv](https://docs.astral.sh/uv/): `uv sync`
-4. Build the rules and run the tests: `make build test`
-5. Print the report: `uv run bm report build/uc.bm-ir.json --bounds rules/uc.inputs.toml`. This needs `build/uc.bm-ir.json`, which `make export` writes and `make test` runs first. At the default 50 random households it takes about 3 minutes.
+4. Build the rules and run the tests (about 4.5 minutes): `make build test`
+5. Print the report: `uv run bm report build/uc.bm-ir.json --bounds rules/uc.inputs.toml`. This needs `build/uc.bm-ir.json`, which `make export` writes and `make test` runs first. It checks 73 households, the default 50 random ones plus 23 fixed ones (the worked rows in the rules tests, earnings at the work allowance and 1p either side, and the last-penny earnings), and takes about 3 minutes.
 
-The report gives the peak marginal rate with an example household, whether Catala can stop with an error for any household in the bounds, the number of mismatches between Catala, Z3 and PolicyEngine UK, and the versions and rules commit that produced it. Add `--json` for the same content as data. `bm --help` lists the other commands, and `make check` runs the differential check alone.
+The report gives the peak marginal rate with an example household, whether Catala can stop with an error for any household in the bounds, the number of mismatches between Catala, Z3 and PolicyEngine UK, and the tool versions, code commit and rules commit that produced it. Add `--json` for the same content as data. `bm --help` lists the other commands, and `make check` runs the differential check alone.
 
-The report refuses to run (exit 1) if the exported file was made by a different Catala version, or if a rules file has changed since the export; run `make export` again. It exits with 0 when all is well, 1 on a failure or an unexplained mismatch, and 2 when a solver result is unknown, for example after a timeout. A failure (1) outranks unknown (2). Mismatches that fit a known class of 1p differences are counted and listed, and do not fail the run. A GitHub Actions workflow for the build, tests and check on pull requests is configured in `.github/workflows/ci.yml`. As of 29 October 2026 it has not yet run on GitHub.
+The earnings input, `earned_income`, is Universal Credit earned income as regulation 55 of the Universal Credit Regulations 2013 defines it, not gross pay: employed earnings after deducting income tax, primary Class 1 National Insurance contributions, relievable pension contributions and payroll giving ([regulation 55(5)](https://www.legislation.gov.uk/uksi/2013/376/regulation/55), checked 29 October 2026).
+
+Every command except `bm translate` refuses to run (exit 1) if the exported file was made by a different Catala version, or if a rules file has changed since the export; run `make export` again. The report exits with 0 when all is well, 1 on a failure or an unexplained mismatch, and 2 when a solver result is unknown, for example after a timeout. A failure (1) outranks unknown (2). Mismatches that fit a known class of 1p differences are counted and listed, and do not fail the run. A GitHub Actions workflow for the build, tests and check on pull requests is configured in `.github/workflows/ci.yml`. As of 29 October 2026 it has not yet run on GitHub.
 
 ## Use of AI
 
