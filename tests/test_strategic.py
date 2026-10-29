@@ -121,10 +121,15 @@ def _money(text: str) -> int:
 
 
 def _catala_award_tests() -> list[tuple[str, dict[str, str], int]]:
-    """Each Catala test scope's name, its inputs as written, and its asserted award."""
+    """Each Catala test of UniversalCredit: its name, inputs as written and asserted award.
+
+    The tests of the window scopes are skipped; they have no single award.
+    """
     text = (ROOT / "rules" / "uc_tests.catala_en").read_text()
     table = []
     for block in text.split("#[test]")[1:]:
+        if "output computation content Uc.UniversalCredit\n" not in block:
+            continue
         name = re.search(r"declaration scope (\w+)", block)[1]
         given = dict(re.findall(r"-- (\w+): (\S+)", block))
         award = re.search(r"assertion \(computation\.award = (\$[\d,.]+)\)", block)
