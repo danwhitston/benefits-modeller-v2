@@ -186,6 +186,8 @@ def test_without_a_claim_the_subtracted_copy_drops_the_rule():
     assert value("gain", {"even": even, "split": nil_last}, case) is None
     assert value("spread", {"a": nil_last, "b": even}, case) is None
     assert value("loss", {"even": nil_last, "split": even}, case) is None
+    # The gain subtracts the even copy, which keeps the rule in every case.
+    assert value("gain", {"even": nil_last, "split": even}, case) is None
 
 
 # brute_force

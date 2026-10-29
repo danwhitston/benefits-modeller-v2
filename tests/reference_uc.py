@@ -147,9 +147,10 @@ def even_split(total: int, periods: int) -> list[int]:
 
 
 # The copy that a figure subtracts, which drops the last-period rule where no
-# claim is made after the end (the loss then runs on past the window).
+# claim is made after the end (the loss then runs on past the window). The gain
+# subtracts the even copy, which always keeps the rule, so it drops nothing.
 _SUBTRACTED = {
-    "gain": "even",
+    "gain": None,
     "loss": "split",
     "spread": "b",
     "extra_payday_max": "payday",
