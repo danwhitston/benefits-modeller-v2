@@ -35,6 +35,10 @@ AT_E = "bm.at_e"
 AT_E_PLUS_DELTA = "bm.at_e_plus_delta"
 
 
+class NoHousehold(ValueError):
+    """No household in the bounds has a value at both e and e + delta."""
+
+
 @dataclass(frozen=True)
 class EmrResult:
     status: Literal["found", "unknown"]
@@ -63,7 +67,9 @@ def emr(
 ) -> EmrResult:
     """The largest fall in `output` when `earnings_input` rises by `delta`.
 
-    Raises `SolverDisagreement` if cvc5 finds a larger fall than Z3's maximum.
+    Raises `NoHousehold` if no household in the bounds (with `fixed` and
+    `earnings_range`) has a value at both e and e + delta, and
+    `SolverDisagreement` if cvc5 finds a larger fall than Z3's maximum.
     If Z3 runs out of time the status is `unknown` and every other field is
     None. If cvc5 does, the status is `unknown` but Z3's maximum is returned.
     """
@@ -111,7 +117,7 @@ def emr(
     if z3_result.status == "unknown":
         return _unknown()
     if z3_result.status == "unsat":
-        raise RuntimeError(
+        raise NoHousehold(
             "no household in the bounds has a value at both e and e + delta;"
             " run the coverage check"
         )

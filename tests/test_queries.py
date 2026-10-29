@@ -8,6 +8,9 @@ import pytest
 
 from bm import bounds as bounds_mod
 from bm import evaluate, ir, queries, solvers, translate
+from bm.bounds import Bound
+from bm.ir import Pos, Var
+from bm.translate import Obligation, SmtModule
 
 ROOT = Path(__file__).resolve().parent.parent
 UC_IR = ROOT / "build" / "uc.bm-ir.json"
@@ -95,7 +98,7 @@ def test_emr_excludes_households_catala_rejects():
     wide = bounds_mod.load(WIDE_DATES, ir.load(UC_IR))
     # Before 6 April 2026 no rate applies, so Catala stops with an error and
     # no household is left to compare.
-    with pytest.raises(RuntimeError, match="no household"):
+    with pytest.raises(queries.NoHousehold):
         start = wide["assessment_period_start"].min
         queries.emr(module, wide, fixed={"assessment_period_start": start})
     # Over the wide range, the household found is one Catala accepts.
@@ -128,3 +131,24 @@ def test_emr_cvc5_unknown_leaves_maximum_unconfirmed(monkeypatch):
     result = queries.emr(module, bounds)
     assert result.status == "unknown"
     assert result.rate == Fraction(55, 100)
+
+
+def test_emr_guards_obligations_at_e_plus_delta():
+    """A synthetic scope with an earnings-dependent gap, so the guard at e + delta
+    matters: without it the largest drop would be 1000 (stepping into the gap),
+    and renaming by prefix would also rewrite earned_income_partner, giving 50."""
+    params = "((|earned_income| Int) (|earned_income_partner| Int))"
+    module = SmtModule(
+        text=f"(define-fun |award| {params} Int (+ (ite (< |earned_income| 500000) 1000 0)"
+        " (ite (< |earned_income_partner| 100) 50 0)))\n",
+        inputs=[Var("earned_income", "money"), Var("earned_income_partner", "money")],
+        functions={"award": "|award|"},
+        obligations=[
+            Obligation("empty", "award", Pos("x.catala_en", 1), "(>= |earned_income| 500000)")
+        ],
+        outputs={"award": "Int"},
+    )
+    bounds = {n: Bound("money", 0, 1_000_000) for n in ("earned_income", "earned_income_partner")}
+    result = queries.emr(module, bounds)
+    assert result.status == "found"
+    assert result.drop == 0
