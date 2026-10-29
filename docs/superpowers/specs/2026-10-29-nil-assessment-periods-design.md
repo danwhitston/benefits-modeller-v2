@@ -260,13 +260,13 @@ These readings drive the milestone's findings. All are questions for an outside 
 - Regulation 61(6) reallocation, regulation 60 notional earnings, the domestic violence exception in regulation 54A(5), transitional protection, and the claimant commitment on a reclaim.
 - A search that uses the relaxed model, and slicing the translation.
 - The other candidates under [Milestones](../../v2-brief.md#milestones) in the brief: the rounding-stage query, other strategic queries, tax and National Insurance, the benefit cap, children, couples and the rest of the housing calculation.
-- The population layer. A spike on access to PolicyEngine UK's survey data may run alongside this milestone, as proposed in the brainstorm, but it is not part of it.
+- A population layer. PolicyEngine UK already does microsimulation on survey data, so the project does not build its own. Scale is taken from cited official statistics and, where a later finding needs it, from a bridge that hands a finding's region to PolicyEngine UK. The brief records this direction (see [Documentation](#documentation)).
 
 ## Documentation
 
 - **`docs/nil-months.md`** (new): the legal readings, the checker's corrections and the evidence on practice, edited into one note with sources, dates and confidence, each reading marked for specialist review. It describes rules and classes of claimant, not any particular claim.
 - **`docs/model-gaps.md`:** the surplus earnings entry becomes "modelled within the window's limits", with those limits. New entries: regulation 61(6); the window's limits; a chain crossing 31 March 2027; the reading of which M and WA apply; and the three new judgement points, with the realistic case for each from the evidence on practice. The milestone 3 findings and their conditions are added to the strategic findings.
-- **`docs/v2-brief.md`:** a milestone 3 entry linking this design; the items carried forward from the milestone 2 reviews, as listed above; and the research question on nil months marked as answered by `docs/nil-months.md`.
+- **`docs/v2-brief.md`:** a milestone 3 entry linking this design; the items carried forward from the milestone 2 reviews, as listed above; the research question on nil months marked as answered by `docs/nil-months.md`; and the direction on population questions: no population layer of the project's own, scale from cited official statistics, and a bridge to PolicyEngine UK as a candidate for a later milestone. The "Estimating impact" and architecture sections are updated to match.
 - **`docs/bm-ir.md`** for version 1, and **`docs/spike-window-scaling.md`** for the probe.
 - **`AI-DECLARATION.md`**, if the way of working changes, and the project `CLAUDE.md` with what worked and what got in the way in this milestone.
 
