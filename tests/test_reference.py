@@ -181,13 +181,15 @@ def test_without_a_claim_the_subtracted_copy_drops_the_rule():
     assert value("extra_payday_max", {"even": even, "payday": nil_last}, case) == total(even, case) - total(
         nil_last, case
     )
-    assert value("extra_payday_min", {"even": even, "payday": nil_last}, case) is not None
     # The gain keeps the rule for the split, and the even copy always does.
     assert value("gain", {"even": even, "split": nil_last}, case) is None
     assert value("spread", {"a": nil_last, "b": even}, case) is None
     assert value("loss", {"even": nil_last, "split": even}, case) is None
     # The gain subtracts the even copy, which keeps the rule in every case.
     assert value("gain", {"even": nil_last, "split": even}, case) is None
+    # The smaller extra payday figure keeps the rule on both copies, like the gain.
+    assert value("extra_payday_min", {"even": even, "payday": nil_last}, case) is None
+    assert value("extra_payday_min", {"even": nil_last, "payday": even}, case) is None
 
 
 # brute_force

@@ -147,14 +147,15 @@ def even_split(total: int, periods: int) -> list[int]:
 
 
 # The copy that a figure subtracts, which drops the last-period rule where no
-# claim is made after the end (the loss then runs on past the window). The gain
-# subtracts the even copy, which always keeps the rule, so it drops nothing.
+# claim is made after the end (the loss then runs on past the window). Only the
+# loss, the spread and the larger extra payday figure drop it. The gain and the
+# smaller extra payday figure keep it on both copies in every case.
 _SUBTRACTED = {
     "gain": None,
     "loss": "split",
     "spread": "b",
     "extra_payday_max": "payday",
-    "extra_payday_min": "payday",
+    "extra_payday_min": None,
 }
 _COPIES = {
     "gain": ("split", "even"),
@@ -180,7 +181,8 @@ def figure_value(
     that of the second: gain is split less even, loss is even less split,
     spread is a less b, and both extra payday figures are even less payday.
     Every copy's last period must have an award of at least 1p, except that
-    where `case["claim_after_end"]` is false the copy that is subtracted need
+    where `case["claim_after_end"]` is false the subtracted copy of the loss
+    (split), the spread (b) and the larger extra payday figure (payday) need
     not. Returns None where a copy that must keep the rule breaks it.
     """
     added, subtracted = _COPIES[figure]
