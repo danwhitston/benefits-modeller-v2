@@ -1,0 +1,221 @@
+{
+  "bm_ir_version": 0,
+  "catala_version": "1.3.0",
+  "scope": "Exception",
+  "inputs": [
+    {
+      "name": "high",
+      "type": "bool"
+    },
+    {
+      "name": "low",
+      "type": "bool"
+    }
+  ],
+  "outputs": [
+    "amount"
+  ],
+  "definitions": [
+    {
+      "name": "amount",
+      "type": "money",
+      "expr": {
+        "k": "error_on_empty",
+        "pos": {
+          "file": "exception.catala_en",
+          "line": 7
+        },
+        "arg": {
+          "k": "default",
+          "pos": {
+            "file": "exception.catala_en",
+            "line": 7
+          },
+          "exceptions": [
+            {
+              "k": "default",
+              "pos": {
+                "file": "exception.catala_en",
+                "line": 7
+              },
+              "exceptions": [
+                {
+                  "k": "default",
+                  "pos": {
+                    "file": "exception.catala_en",
+                    "line": 19
+                  },
+                  "exceptions": [],
+                  "just": {
+                    "k": "var",
+                    "name": "low",
+                    "pos": {
+                      "file": "exception.catala_en",
+                      "line": 19
+                    }
+                  },
+                  "cons": {
+                    "k": "pure",
+                    "pos": {
+                      "file": "exception.catala_en",
+                      "line": 19
+                    },
+                    "arg": {
+                      "k": "lit",
+                      "type": "money",
+                      "value": "5000",
+                      "pos": {
+                        "file": "exception.catala_en",
+                        "line": 19
+                      }
+                    }
+                  }
+                }
+              ],
+              "just": {
+                "k": "lit",
+                "type": "bool",
+                "value": "false",
+                "pos": {
+                  "file": "exception.catala_en",
+                  "line": 7
+                }
+              },
+              "cons": {
+                "k": "empty",
+                "pos": {
+                  "file": "exception.catala_en",
+                  "line": 7
+                }
+              }
+            },
+            {
+              "k": "default",
+              "pos": {
+                "file": "exception.catala_en",
+                "line": 7
+              },
+              "exceptions": [
+                {
+                  "k": "default",
+                  "pos": {
+                    "file": "exception.catala_en",
+                    "line": 15
+                  },
+                  "exceptions": [],
+                  "just": {
+                    "k": "var",
+                    "name": "high",
+                    "pos": {
+                      "file": "exception.catala_en",
+                      "line": 15
+                    }
+                  },
+                  "cons": {
+                    "k": "pure",
+                    "pos": {
+                      "file": "exception.catala_en",
+                      "line": 15
+                    },
+                    "arg": {
+                      "k": "lit",
+                      "type": "money",
+                      "value": "20000",
+                      "pos": {
+                        "file": "exception.catala_en",
+                        "line": 15
+                      }
+                    }
+                  }
+                }
+              ],
+              "just": {
+                "k": "lit",
+                "type": "bool",
+                "value": "false",
+                "pos": {
+                  "file": "exception.catala_en",
+                  "line": 7
+                }
+              },
+              "cons": {
+                "k": "empty",
+                "pos": {
+                  "file": "exception.catala_en",
+                  "line": 7
+                }
+              }
+            }
+          ],
+          "just": {
+            "k": "lit",
+            "type": "bool",
+            "value": "true",
+            "pos": {
+              "file": "exception.catala_en",
+              "line": 7
+            }
+          },
+          "cons": {
+            "k": "default",
+            "pos": {
+              "file": "exception.catala_en",
+              "line": 7
+            },
+            "exceptions": [
+              {
+                "k": "default",
+                "pos": {
+                  "file": "exception.catala_en",
+                  "line": 11
+                },
+                "exceptions": [],
+                "just": {
+                  "k": "lit",
+                  "type": "bool",
+                  "value": "true",
+                  "pos": {
+                    "file": "exception.catala_en",
+                    "line": 11
+                  }
+                },
+                "cons": {
+                  "k": "pure",
+                  "pos": {
+                    "file": "exception.catala_en",
+                    "line": 11
+                  },
+                  "arg": {
+                    "k": "lit",
+                    "type": "money",
+                    "value": "10000",
+                    "pos": {
+                      "file": "exception.catala_en",
+                      "line": 11
+                    }
+                  }
+                }
+              }
+            ],
+            "just": {
+              "k": "lit",
+              "type": "bool",
+              "value": "false",
+              "pos": {
+                "file": "exception.catala_en",
+                "line": 7
+              }
+            },
+            "cons": {
+              "k": "empty",
+              "pos": {
+                "file": "exception.catala_en",
+                "line": 7
+              }
+            }
+          }
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,80 @@
+{
+  "bm_ir_version": 0,
+  "catala_version": "1.3.0",
+  "scope": "LitDecimal",
+  "inputs": [],
+  "outputs": [
+    "rate"
+  ],
+  "definitions": [
+    {
+      "name": "rate",
+      "type": "decimal",
+      "expr": {
+        "k": "error_on_empty",
+        "pos": {
+          "file": "lit_decimal.catala_en",
+          "line": 5
+        },
+        "arg": {
+          "k": "default",
+          "pos": {
+            "file": "lit_decimal.catala_en",
+            "line": 5
+          },
+          "exceptions": [
+            {
+              "k": "default",
+              "pos": {
+                "file": "lit_decimal.catala_en",
+                "line": 8
+              },
+              "exceptions": [],
+              "just": {
+                "k": "lit",
+                "type": "bool",
+                "value": "true",
+                "pos": {
+                  "file": "lit_decimal.catala_en",
+                  "line": 8
+                }
+              },
+              "cons": {
+                "k": "pure",
+                "pos": {
+                  "file": "lit_decimal.catala_en",
+                  "line": 8
+                },
+                "arg": {
+                  "k": "lit",
+                  "type": "decimal",
+                  "value": "11/20",
+                  "pos": {
+                    "file": "lit_decimal.catala_en",
+                    "line": 8
+                  }
+                }
+              }
+            }
+          ],
+          "just": {
+            "k": "lit",
+            "type": "bool",
+            "value": "false",
+            "pos": {
+              "file": "lit_decimal.catala_en",
+              "line": 5
+            }
+          },
+          "cons": {
+            "k": "empty",
+            "pos": {
+              "file": "lit_decimal.catala_en",
+              "line": 5
+            }
+          }
+        }
+      }
+    }
+  ]
+}

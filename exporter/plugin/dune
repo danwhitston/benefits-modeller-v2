@@ -1,0 +1,4 @@
+; A directory holding only the plugin, to pass to `catala --plugin-dir`.
+
+(rule
+ (copy ../bm_export.cmxs bm_export.cmxs))

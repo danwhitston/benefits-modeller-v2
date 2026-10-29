@@ -1,0 +1,12 @@
+# Fixture: definition conditional on a date
+
+```catala
+declaration scope DateCondition:
+  input start content date
+  output amount content money
+
+scope DateCondition:
+  definition amount
+    under condition start >= |2026-04-06|
+    consequence equals $10.00
+```

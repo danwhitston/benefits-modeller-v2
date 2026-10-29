@@ -1,0 +1,9 @@
+# Fixture: date literal
+
+```catala
+declaration scope LitDate:
+  output start content date
+
+scope LitDate:
+  definition start equals |2026-04-06|
+```
