@@ -11,8 +11,12 @@
    Z3 finds the first by minimising earnings subject to an award of 0 and no
    obligation holding (`last_penny_earnings`), and cvc5 confirms that no
    smaller earnings give an award of 0.
-4. `n_random` households drawn uniformly from the bounds with
-   `random.Random(seed)`, each boolean true with probability one half.
+4. `n_random` households drawn with `random.Random(seed)`. For each, the two
+   booleans are drawn first, each true with probability one half, then the
+   start date uniformly from its bounds, then earnings uniformly from the
+   lower bound up to that combination's last-penny earnings plus 100 pounds
+   (or the upper bound, if lower). So most random households have an award
+   above 0 and reach the taper, and some past the last penny have none.
 
 Every value is a Python `int` or `bool`, in SMT units: pence, and days since
 1970-01-01. Values from Z3 are converted explicitly.
@@ -34,6 +38,8 @@ AWARD = "bm.award"
 
 # The test scopes of rules/uc_tests.catala_en all start on this date.
 TABLE_START = date(2026, 5, 1)
+# Random earnings run up to the last-penny earnings plus this, in pence.
+RANDOM_MARGIN = 10_000
 # (earned income in pence, aged 25 or over, has LCW), in file order.
 # `test_table_rows_match_catala_tests` checks these against the file.
 TABLE_ROWS = [
@@ -140,22 +146,30 @@ def generate(
         allowance = int(evaluate.outputs(module, at_nil)["work_allowance"])
         for earned in (allowance - 1, allowance, allowance + 1):
             found.append(_household(TABLE_START, earned, aged_25, lcw))
-    for aged_25, lcw in COMBINATIONS:
-        zero = last_penny_earnings(module, bounds, aged_25, lcw)
+    zeros = {
+        (aged_25, lcw): last_penny_earnings(module, bounds, aged_25, lcw)
+        for aged_25, lcw in COMBINATIONS
+    }
+    for (aged_25, lcw), zero in zeros.items():
         for earned in (zero - 1, zero):
             found.append(_household(TABLE_START, earned, aged_25, lcw))
     found = [h for h in found if _within(h, bounds)]
 
     rng = random.Random(seed)
-    names = [v.name for v in module.inputs]
+    dates, earnings = bounds["assessment_period_start"], bounds["earned_income"]
     for _ in range(n_random):
-        h: dict[str, int | bool] = {}
-        for name in names:
-            if name in bounds:
-                h[name] = int(rng.randint(bounds[name].min, bounds[name].max))
-            else:
-                h[name] = bool(rng.random() < 0.5)
-        found.append(h)
+        aged_25 = bool(rng.random() < 0.5)
+        lcw = bool(rng.random() < 0.5)
+        start = int(rng.randint(dates.min, dates.max))
+        top = min(earnings.max, zeros[(aged_25, lcw)] + RANDOM_MARGIN)
+        found.append(
+            {
+                "assessment_period_start": start,
+                "earned_income": int(rng.randint(earnings.min, top)),
+                "aged_25_or_over": aged_25,
+                "has_lcw": lcw,
+            }
+        )
 
     unique: dict[tuple, dict[str, int | bool]] = {}
     for h in found:

@@ -51,14 +51,27 @@ Regulations, checked 29 October 2026:
   that deduction as a calculation of an amount, so they round it, and the award
   follows from the rounded figure.
 
-Other sources. DWP staff guidance deposited in Parliament in May 2024
-(DEP2024-0673, "Work Allowance and Earnings Taper rate") describes the taper
-result as an amount to be taken into account, without stating a rounding
-stage. How DWP's own system rounds cannot be observed from outside.
+Other sources.
+[DWP staff guidance deposited in Parliament](https://data.parliament.uk/DepositedPapers/Files/DEP2024-0673/196_Work_Allowance_and_Earnings_Taper_rate.pdf)
+(DEP2024-0673, "Work Allowance and Earnings Taper rate", dated 8 May 2024,
+checked 29 October 2026) says that earnings above the work allowance are
+multiplied by 55% "to give an amount to be taken into account". It says
+nothing about rounding. How DWP's own system rounds cannot be observed from
+outside.
 
-Decision: the project keeps rounding the deduction. The question stays open.
-If it is settled in favour of (b) or (c), `rounding_stage_difference` and this entry are
-the only things to change.
+Decision: the project keeps rounding the deduction, reading (a). The question
+stays open. If it is settled in favour of (b) or (c), the rules in
+`rules/uc.catala_en` change (rounding moves to the award, or ties go to the
+claimant). This class of mismatch then becomes our error, and
+`bm.checks.rounding_stage_difference` is deleted.
 
-Count: in `test_checks_exact_match` (73 households, `n_random=50, seed=1`),
-1 mismatch, and it is this one (the table row above).
+Count, 29 October 2026: `test_checks_exact_match` (73 households,
+`n_random=50, seed=1`) finds 4 mismatches, and all 4 are in this class. One is
+the table row above. Three are random households without LCW, where all the
+earnings count:
+
+| Start | Earnings | Age 25 or over | Catala | Z3 | PolicyEngine UK |
+|---|---|---|---|---|---|
+| 2026-08-27 | £327.10 | yes | £244.99 | £244.99 | £245.00 |
+| 2027-01-14 | £305.50 | no | £170.55 | £170.55 | £170.56 |
+| 2027-03-23 | £283.90 | yes | £268.75 | £268.75 | £268.76 |

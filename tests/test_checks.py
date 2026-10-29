@@ -108,7 +108,15 @@ def test_generate_composition():
         for e in (allowance - 1, allowance, allowance + 1):
             if e >= 0:
                 assert has(households.TABLE_START, e, aged_25, lcw)
-    assert generated[-50:] == households.generate(bounds, n_random=50, seed=1)[-50:]
+    random_part = generated[-50:]
+    for h in random_part:
+        top = LAST_PENNY[(h["aged_25_or_over"], h["has_lcw"])] + households.RANDOM_MARGIN
+        assert h["earned_income"] <= top
+    # Most random households reach the taper; the margin keeps some past it.
+    awards = [evaluate.outputs(module, h)["award"] for h in random_part]
+    assert sum(a > 0 for a in awards) >= 40
+    assert any(a == 0 for a in awards)
+    assert random_part == households.generate(bounds, n_random=50, seed=1)[-50:]
     assert generated[-50:] != households.generate(bounds, n_random=50, seed=2)[-50:]
 
 
@@ -143,6 +151,30 @@ def test_rounding_stage_difference():
     assert not p(ten_p, {**HALF_PENNY_OUTPUTS, "earnings_deduction": 0, "award": 42_490}, 42_491)
 
 
+def _decimal_literals(expr) -> set:
+    match expr:
+        case ir.Lit(type="decimal", value=v):
+            return {v}
+        case ir.Lit() | ir.VarRef() | ir.Empty():
+            return set()
+        case ir.Op(args=args):
+            return set().union(*map(_decimal_literals, args))
+        case ir.If(cond=c, then=t, else_=e):
+            return _decimal_literals(c) | _decimal_literals(t) | _decimal_literals(e)
+        case ir.Default(exceptions=xs, just=j, cons=c):
+            return set().union(*map(_decimal_literals, xs), _decimal_literals(j), _decimal_literals(c))
+        case ir.Pure(arg=a) | ir.ErrorOnEmpty(arg=a):
+            return _decimal_literals(a)
+    raise TypeError(expr)
+
+
+def test_taper_matches_rules():
+    # The predicate's half-penny test assumes the rules' taper. A new rate must
+    # fail here, not quietly explain other mismatches.
+    (rate,) = [d for d in ir.load(UC_IR).definitions if d.name == "deduction_rate"]
+    assert _decimal_literals(rate.expr) == {checks.TAPER}
+
+
 def test_run_logs_rounding_stage_household():
     (m,) = checks.run([HALF_PENNY])
     assert (m.household, m.catala, m.z3, m.policyengine) == (HALF_PENNY, 42_484, 42_484, 42_485)
@@ -162,12 +194,21 @@ def test_run_raises_when_catala_and_z3_differ(monkeypatch):
         checks.run([household(date(2026, 5, 1), 50_000, True, False)])
 
 
-def test_run_raises_when_only_one_engine_stops(monkeypatch):
+def test_run_raises_when_only_z3_stops(monkeypatch):
     def stops(module, inputs):
         raise evaluate.EvaluationError("forced")
 
     monkeypatch.setattr(checks.evaluate, "outputs", stops)
-    with pytest.raises(checks.TranslatorDisagreement, match="Z3"):
+    with pytest.raises(checks.TranslatorDisagreement, match="Z3 stops"):
+        checks.run([household(date(2026, 5, 1), 50_000, True, False)])
+
+
+def test_run_raises_when_only_catala_stops(monkeypatch):
+    def stops(rules, scope, inputs):
+        raise catala_run.CatalaRuntimeError("forced")
+
+    monkeypatch.setattr(checks.catala_run, "outputs", stops)
+    with pytest.raises(checks.TranslatorDisagreement, match="Catala stops"):
         checks.run([household(date(2026, 5, 1), 50_000, True, False)])
 
 

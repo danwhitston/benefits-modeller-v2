@@ -10,12 +10,15 @@ household where they differ is returned as a `Mismatch`. Nothing is filtered:
 known differences are returned too, and are explained in docs/mismatches.md.
 
 `rounding_stage_difference` is the one known difference, an open question on
-the stage at which regulation 6(1) rounds. If that is decided, the predicate
-and its entry in docs/mismatches.md are the only things to change.
+the stage at which regulation 6(1) rounds. The project rounds each calculated
+amount. If the question is settled the other way (rounding only the award, or
+half-penny ties in the claimant's favour), the rules in rules/uc.catala_en
+change, this class of mismatch becomes our error, and the predicate is deleted.
 """
 
 from collections.abc import Mapping
 from dataclasses import dataclass, field
+from fractions import Fraction
 from pathlib import Path
 
 from bm import catala_run, evaluate, ir, policyengine, translate
@@ -26,10 +29,11 @@ RULES = ROOT / "rules" / "uc.catala_en"
 UC_IR = ROOT / "build" / "uc.bm-ir.json"
 SCOPE = "UniversalCredit"
 
-# Earnings above the work allowance, in pence, at which 55% ends in exactly
-# half a penny: 11x/20 has a fractional part of 1/2 exactly when x is 10 (mod 20).
-HALF_PENNY_MODULUS = 20
-HALF_PENNY_RESIDUE = 10
+# The regulation 22(1)(b) taper. `test_taper_matches_rules` checks it against
+# the deduction rate in the rules, so a change of rate fails there instead of
+# quietly explaining other mismatches.
+TAPER = Fraction(55, 100)
+HALF = Fraction(1, 2)
 
 
 @dataclass(frozen=True)
@@ -72,7 +76,7 @@ def rounding_stage_difference(
     work allowance is read from them.
     """
     above = int(household["earned_income"]) - int(catala["work_allowance"])
-    half_penny = above > 0 and above % HALF_PENNY_MODULUS == HALF_PENNY_RESIDUE
+    half_penny = above > 0 and (TAPER * above) % 1 == HALF
     return half_penny and policyengine == int(catala["award"]) + 1
 
 
