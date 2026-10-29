@@ -92,6 +92,18 @@
  (action
   (run %{exe:check.exe} json %{dep:date_condition.expected.json} %{dep:date_condition.out.json})))
 
+(rule
+ (deps ../plugin/bm_export.cmxs)
+ (action
+  (with-stdout-to
+   internal.out.json
+   (run catala bm-export --plugin-dir ../plugin --no-stdlib -s Internal %{dep:internal.catala_en}))))
+
+(rule
+ (alias runtest)
+ (action
+  (run %{exe:check.exe} json %{dep:internal.expected.json} %{dep:internal.out.json})))
+
 ; A list literal is outside bm-ir v0: the export must fail and name the
 ; construct and its line.
 
@@ -108,3 +120,20 @@
  (alias runtest)
  (action
   (run %{exe:check.exe} contains %{dep:unsupported.expected.txt} %{dep:unsupported.out.txt})))
+
+; An input that is also an output has no definition, so it cannot be listed in
+; outputs: the export must fail.
+
+(rule
+ (deps ../plugin/bm_export.cmxs)
+ (action
+  (with-accepted-exit-codes
+   (not 0)
+   (with-outputs-to
+    input_output.out.txt
+    (run catala bm-export --plugin-dir ../plugin --no-stdlib --color=never -s InputOutput %{dep:input_output.catala_en})))))
+
+(rule
+ (alias runtest)
+ (action
+  (run %{exe:check.exe} contains %{dep:input_output.expected.txt} %{dep:input_output.out.txt})))

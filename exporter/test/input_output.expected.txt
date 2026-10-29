@@ -1,0 +1,1 @@
+Unsupported construct scope output x (not a definition) at input_output.catala_en:4
