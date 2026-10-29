@@ -16,7 +16,8 @@ build:
 	$(CLERK) start
 	@for f in $(RULES); do $(CATALA) typecheck -I rules $$f || exit 1; done
 
-test:
+# The Python tests read build/uc.bm-ir.json, which `export` writes.
+test: export
 	$(CLERK) test
 	$(DUNE) test --root exporter
 	uv run pytest
