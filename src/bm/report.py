@@ -204,16 +204,21 @@ def differential_text(d: Differential, inputs: list[Var]) -> list[str]:
     return out
 
 
-def _provenance_text(r: Report) -> list[str]:
-    p = r.provenance
+def provenance_text(p: Provenance) -> list[str]:
     state = "uncommitted changes" if p.rules_dirty else "clean"
     return [
         "Provenance",
-        f"  rules commit  {p.rules_commit} ({state})",
-        f"  catala        {p.catala_version} (the IR was exported with {p.ir_catala_version})",
-        f"  z3            {p.z3_version}",
-        f"  cvc5          {p.cvc5_version}",
+        f"  rules commit     {p.rules_commit} ({state})",
+        f"  code commit      {p.code_commit}",
+        f"  catala           {p.catala_version} (the IR was exported with {p.ir_catala_version})",
+        f"  z3               {p.z3_version}",
+        f"  cvc5             {p.cvc5_version}",
+        f"  policyengine-uk  {p.policyengine_uk_version}",
     ]
+
+
+def provenance_dict(p: Provenance) -> dict:
+    return _plain(p)
 
 
 def to_text(r: Report) -> str:
@@ -222,7 +227,7 @@ def to_text(r: Report) -> str:
         emr_text(r.emr, r.inputs, r.earnings_input, r.delta),
         coverage_text(r.coverage, r.inputs),
         differential_text(r.differential, r.inputs),
-        _provenance_text(r),
+        provenance_text(r.provenance),
     ]
     return "\n\n".join("\n".join(s) for s in sections) + "\n"
 
@@ -283,7 +288,7 @@ def to_dict(r: Report) -> dict:
             "unexplained": _plain(d.unexplained),
             "explained_see": MISMATCH_DOC,
         },
-        "provenance": _plain(r.provenance),
+        "provenance": provenance_dict(r.provenance),
     }
 
 

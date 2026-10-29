@@ -2,7 +2,8 @@
 
 `collect(rules)` records the commit that last changed the rules, whether the
 rules have uncommitted or untracked changes (so the commit alone would not
-reproduce the result), and the versions of Catala, Z3 and cvc5.
+reproduce the result), the commit of this repository (the code version), and
+the versions of Catala, Z3, cvc5 and the installed `policyengine-uk`.
 
 Results come from the exported IR (`build/uc.bm-ir.json`), not from the rules
 directly, so `collect(rules, ir_path)` also checks that the IR describes these
@@ -21,6 +22,7 @@ the rules may sit in a repository of their own.
 
 import subprocess
 from dataclasses import dataclass
+from importlib import metadata
 from pathlib import Path
 
 from bm import ir, solvers
@@ -36,11 +38,15 @@ class Provenance:
     rules_commit: str
     # True if the rules differ from that commit, or hold untracked files.
     rules_dirty: bool
+    # HEAD of the repository holding this code. Under CI's checkout of a pull
+    # request's merge ref it is a synthetic merge commit, not a branch commit.
+    code_commit: str
     catala_version: str
     # The Catala version recorded in the IR; equals `catala_version` once checked.
     ir_catala_version: str
     z3_version: str
     cvc5_version: str
+    policyengine_uk_version: str
 
 
 def _run(args: list[str], cwd: Path, default: str | None = None) -> str:
@@ -77,7 +83,17 @@ def collect(rules: Path, ir_path: Path | None = None) -> Provenance:
     commit = _run(["git", "log", "-1", "--format=%H", "--", target], where, default="") or "none"
     dirty = bool(_run(["git", "status", "--porcelain", "--", target], where))
     repo = Path(__file__).resolve().parents[2]
+    code = _run(["git", "rev-parse", "HEAD"], repo, default="") or "none"
     catala = _run(["opam", "exec", "--", "catala", "--version"], repo)
     ir_version = _check_ir(rules, Path(ir_path), catala) if ir_path else catala
     versions = solvers.versions()
-    return Provenance(commit, dirty, catala, ir_version, versions["z3"], versions["cvc5"])
+    return Provenance(
+        rules_commit=commit,
+        rules_dirty=dirty,
+        code_commit=code,
+        catala_version=catala,
+        ir_catala_version=ir_version,
+        z3_version=versions["z3"],
+        cvc5_version=versions["cvc5"],
+        policyengine_uk_version=metadata.version("policyengine-uk"),
+    )

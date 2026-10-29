@@ -3,6 +3,7 @@
 import json
 import os
 import subprocess
+from importlib import metadata
 from dataclasses import dataclass
 from fractions import Fraction
 from pathlib import Path
@@ -69,6 +70,8 @@ def test_provenance_tool_versions():
     p = provenance.collect(ROOT / "rules")
     assert p.catala_version == "1.3.0"
     assert p.z3_version and p.cvc5_version
+    assert p.policyengine_uk_version == metadata.version("policyengine-uk")
+    assert p.code_commit == git(ROOT, "rev-parse", "HEAD")
 
 
 def write_ir(path: Path, catala_version: str) -> Path:
@@ -117,7 +120,9 @@ def test_translate_writes_smt2(tmp_path: Path, capsys):
 
 def test_coverage_uc_has_no_gaps(capsys):
     assert cli.main(["coverage", UC_IR, "--bounds", UC_BOUNDS]) == 0
-    assert "no gaps" in capsys.readouterr().out
+    out = capsys.readouterr().out
+    assert "no gaps" in out
+    assert "Provenance" in out and "code commit" in out
 
 
 def test_query_emr_text(capsys):
@@ -133,6 +138,7 @@ def test_query_emr_json(capsys):
     assert data["status"] == "found"
     assert data["rate"] == "11/20"
     assert data["delta"] == 100
+    assert data["provenance"]["ir_catala_version"] == "1.3.0"
 
 
 def test_report_unknown_exit_code(capsys):
@@ -174,7 +180,7 @@ def make_report(
 ) -> report.Report:
     emr = EmrResult(status, rate, 55, HOUSEHOLD, 57, 2, {"z3": "1", "cvc5": "2"})
     d = report.Differential(5, 1, list(explained), list(unexplained))
-    p = provenance.Provenance("abc123", True, "1.3.0", "1.3.0", "1", "2")
+    p = provenance.Provenance("abc123", True, "def456", "1.3.0", "1.3.0", "1", "2", "2.164.2")
     return report.Report("UC", INPUTS, "earned_income", 100, emr, list(coverage), d, p)
 
 
@@ -237,8 +243,8 @@ def test_report_json_shape(capsys):
     m = data["mismatches"]
     assert m["total"] == len(m["explained"]) + len(m["unexplained"])
     assert set(data["provenance"]) == {
-        "rules_commit", "rules_dirty", "catala_version", "ir_catala_version",
-        "z3_version", "cvc5_version",
+        "rules_commit", "rules_dirty", "code_commit", "catala_version", "ir_catala_version",
+        "z3_version", "cvc5_version", "policyengine_uk_version",
     }
 
 
@@ -266,3 +272,19 @@ def test_translator_disagreement_exits_1(capsys, monkeypatch):
     monkeypatch.setattr(checks, "run", disagree)
     assert cli.main(["check", UC_IR, "--bounds", UC_BOUNDS, "--n-random", "2"]) == 1
     assert "Catala 1, Z3 2" in capsys.readouterr().err
+
+
+def test_check_on_a_stale_ir_fails_with_the_provenance_error(tmp_path: Path, capsys, monkeypatch):
+    # The rules under rules/ are all newer than this IR, as if edited after `make export`.
+    stale = write_ir(tmp_path / "uc.bm-ir.json", "1.3.0")
+    os.utime(stale, (1_000_000, 1_000_000))
+    from bm import checks
+
+    def must_not_run(households, module=None):
+        raise AssertionError("the differential check ran on a stale IR")
+
+    monkeypatch.setattr(checks, "run", must_not_run)
+    assert cli.main(["check", str(stale), "--bounds", UC_BOUNDS, "--n-random", "1"]) == 1
+    err = capsys.readouterr().err
+    assert "ProvenanceError" in err and "changed after" in err and "make export" in err
+    assert "TranslatorBug" not in err

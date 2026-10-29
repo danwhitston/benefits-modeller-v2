@@ -6,11 +6,15 @@
     bm check IR --bounds TOML [--n-random 50] [--seed 1]
     bm report IR --bounds TOML [--json] [--n-random 50] [--seed 1]
 
+Every command but `translate` takes `--rules` and prints a provenance block
+(`bm.provenance`). It first checks that the IR was exported from the current
+rules by the running Catala, and fails (exit 1) if not.
+
 Exit status: 0 when there are no errors, 1 on any failure (a missing file, a
 solver disagreement, a coverage gap, an unexplained mismatch), and 2 when a
 result is unknown, for example after a timeout. A failure takes precedence.
-`--rules` names the rules directory recorded in the provenance block; it
-defaults to the directory of the bounds file.
+`--rules` names the rules directory recorded in the provenance block and
+checked against the IR; it defaults to the directory of the bounds file.
 """
 
 import argparse
@@ -19,7 +23,7 @@ import sys
 from pathlib import Path
 
 from bm import bounds as bounds_mod
-from bm import coverage, ir, queries, report, solvers, translate
+from bm import coverage, ir, provenance, queries, report, solvers, translate
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -30,6 +34,9 @@ def _parser() -> argparse.ArgumentParser:
         p.add_argument("ir", type=Path, help="bm-ir JSON file written by `make export`")
         if bounds:
             p.add_argument("--bounds", type=Path, required=True, help="inputs bounds TOML")
+            p.add_argument(
+                "--rules", type=Path, help="rules directory (default: the bounds file's directory)"
+            )
 
     def with_timeout(p: argparse.ArgumentParser) -> None:
         p.add_argument("--timeout-ms", type=int, default=60_000)
@@ -63,14 +70,24 @@ def _parser() -> argparse.ArgumentParser:
     with_check(r)
     with_timeout(r)
     r.add_argument("--json", action="store_true")
-    r.add_argument("--rules", type=Path)
     return parser
 
 
+def _rules_dir(args: argparse.Namespace) -> Path:
+    return args.rules or args.bounds.resolve().parent
+
+
 def _load(args: argparse.Namespace):
+    # Provenance first, so that an IR exported from other rules, or by another
+    # Catala, fails here rather than as a solver result or a translator bug.
+    prov = provenance.collect(_rules_dir(args), args.ir)
     scope = ir.load(args.ir)
     module = translate.translate(scope)
-    return scope, module, bounds_mod.load(args.bounds, scope)
+    return prov, module, bounds_mod.load(args.bounds, scope)
+
+
+def _print_text(sections: list[list[str]]) -> None:
+    print("\n\n".join("\n".join(s) for s in sections))
 
 
 def _translate(args: argparse.Namespace) -> int:
@@ -81,34 +98,31 @@ def _translate(args: argparse.Namespace) -> int:
 
 
 def _coverage(args: argparse.Namespace) -> int:
-    _, module, bounds = _load(args)
+    prov, module, bounds = _load(args)
     findings = coverage.check(module, bounds, timeout_ms=args.timeout_ms)
-    print("\n".join(report.coverage_text(findings, module.inputs)))
+    _print_text([report.coverage_text(findings, module.inputs), report.provenance_text(prov)])
     if any(f.status == "found" for f in findings):
         return 1
     return 2 if findings else 0
 
 
 def _query_emr(args: argparse.Namespace) -> int:
-    _, module, bounds = _load(args)
+    prov, module, bounds = _load(args)
     result = queries.emr(module, bounds, delta=args.delta, timeout_ms=args.timeout_ms)
     if args.json:
         data = report.emr_dict(result, args.delta, "earned_income")
-        print(json.dumps({"units": report.UNITS, **data}, indent=2))
+        prov_data = report.provenance_dict(prov)
+        print(json.dumps({"units": report.UNITS, **data, "provenance": prov_data}, indent=2))
     else:
         text = report.emr_text(result, module.inputs, "earned_income", args.delta)
-        print("\n".join(text))
+        _print_text([text, report.provenance_text(prov)])
     return 2 if result.status == "unknown" else 0
 
 
-def _rules_dir(args: argparse.Namespace) -> Path:
-    return args.rules or args.bounds.resolve().parent
-
-
 def _check(args: argparse.Namespace) -> int:
-    _, module, bounds = _load(args)
+    prov, module, bounds = _load(args)
     d = report.differential(module, bounds, args.n_random, args.seed)
-    print("\n".join(report.differential_text(d, module.inputs)))
+    _print_text([report.differential_text(d, module.inputs), report.provenance_text(prov)])
     return 1 if d.unexplained else 0
 
 
@@ -138,8 +152,8 @@ def main(argv: list[str] | None = None) -> int:
         return handler(args)
     except (OSError, ValueError, RuntimeError, solvers.SolverDisagreement) as error:
         # ValueError covers IrError, BoundsError, TranslateError and NoHousehold;
-        # RuntimeError covers SolverError, CatalaRuntimeError, EvaluationError
-        # and report.TranslatorBug.
+        # RuntimeError covers SolverError, CatalaRuntimeError, EvaluationError,
+        # report.TranslatorBug and provenance.ProvenanceError.
         print(f"bm: {type(error).__name__}: {error}", file=sys.stderr)
         return 1
 
