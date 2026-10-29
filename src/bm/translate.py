@@ -72,8 +72,8 @@ class SmtModule:
     inputs: list[Var]
     functions: dict[str, str]
     obligations: list[Obligation]
-    # Output name to SMT sort, in the scope's order. Not in the Task 3 brief:
-    # `bm.evaluate` needs it to know which functions are outputs.
+    # Output name to SMT sort, in the scope's order. `functions` also holds
+    # internal definitions, so `bm.evaluate` reads this to know the outputs.
     outputs: dict[str, str]
 
 

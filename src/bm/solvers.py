@@ -11,8 +11,9 @@ Z3 uses `Solver` and `parse_smt2_string`, or `Optimize` when the script holds
 Z3-specific commands such as `(maximize ...)`. cvc5 is never sent those.
 
 A timeout gives status "unknown". So does a Z3 optimisation that answers sat
-without proving the objective optimal, because that model is not a result. Anything else that goes wrong, such as a
-script that does not parse, raises `SolverError`.
+without proving the objective optimal, because that model is not a result.
+Anything else that goes wrong, such as a script that does not parse, raises
+`SolverError`.
 
 Models cover the declared constants only, as ints and bools. A declared
 constant of another sort (Real, for example) in a satisfiable script raises
@@ -133,11 +134,14 @@ def _proved_optimal(engine: z3.Optimize) -> bool:
     """
     if _INTERRUPTED.search(engine.reason_unknown()):
         return False
-    ref, handle = engine.ctx.ref(), engine.optimize
+    ref = engine.ctx.ref()
     for i in range(len(engine.objectives())):
-        upper = z3.Z3_optimize_get_upper(ref, handle, i)
-        lower = z3.Z3_optimize_get_lower(ref, handle, i)
-        if not (z3.Z3_is_numeral_ast(ref, upper) and z3.Z3_is_eq_ast(ref, upper, lower)):
+        # OptimizeObjective wraps the bound ASTs as reference-counted ExprRefs,
+        # so no raw Z3_ast pointer is held. Whether objective i is a maximum or
+        # a minimum only matters for `.value()`, which is not used here.
+        objective = z3.OptimizeObjective(engine, i, False)
+        upper, lower = objective.upper(), objective.lower()
+        if not (z3.Z3_is_numeral_ast(ref, upper.as_ast()) and upper.eq(lower)):
             return False
     return True
 
