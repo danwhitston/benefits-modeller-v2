@@ -193,7 +193,10 @@ def differential_text(d: Differential, inputs: list[Var]) -> list[str]:
         out.append(f"  explained mismatches are a known class of 1p difference: see {MISMATCH_DOC}")
     for label, group in (("explained", d.explained), ("UNEXPLAINED", d.unexplained)):
         for m in group:
-            awards = f"catala {money(m.catala)}, z3 {money(m.z3)}, policyengine {money(m.policyengine)}"
+            awards = (
+                f"catala {money(m.catala)}, z3 {money(m.z3)}, "
+                f"policyengine {money(m.policyengine)}"
+            )
             out.append(f"  {label}: award {awards}")
             out += _indent(household_lines(inputs, m.household), 6)
     return out

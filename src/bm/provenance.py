@@ -39,6 +39,7 @@ def collect(rules: Path) -> Provenance:
     target = "." if rules.is_dir() else rules.name
     commit = _run(["git", "log", "-1", "--format=%H", "--", target], where) or "none"
     dirty = bool(_run(["git", "status", "--porcelain", "--", target], where))
-    catala = _run(["opam", "exec", "--", "catala", "--version"], Path(__file__).resolve().parents[2])
+    repo = Path(__file__).resolve().parents[2]
+    catala = _run(["opam", "exec", "--", "catala", "--version"], repo)
     versions = solvers.versions()
     return Provenance(commit, dirty, catala, versions["z3"], versions["cvc5"])

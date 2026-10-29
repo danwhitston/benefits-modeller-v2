@@ -109,7 +109,11 @@ def test_missing_file_exits_1(capsys):
 
 # The report. These build a Report by hand, so they do not need the differential check.
 
-INPUTS = [Var("assessment_period_start", "date"), Var("earned_income", "money"), Var("flag", "bool")]
+INPUTS = [
+    Var("assessment_period_start", "date"),
+    Var("earned_income", "money"),
+    Var("flag", "bool"),
+]
 HOUSEHOLD = {"assessment_period_start": 20549, "earned_income": 148150, "flag": True}
 
 
