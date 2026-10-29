@@ -280,8 +280,9 @@ def timing(
                 script.add(f"(assert (<= {objective} {gain}))")
         # If any split is feasible, so is the even split: its households are
         # the baseline's, and its gain is 0 in every case. So the optimum is
-        # at least 0. Saying so is sound, and it keeps Z3's search short:
-        # without it, Z3 took from 0.01 s to 18 s on the same small script.
+        # at least 0, and saying so is sound. It is not what keeps the search
+        # short: the run time of Z3's Optimize engine had a long tail with the
+        # bound as well, which is why `optimise_and_confirm` no longer uses it.
         script.add(f"(assert (>= {objective} 0))")
         optimum = solvers.optimise_and_confirm(
             script.lines, objective, "max", timeout_ms, f"a timing gain above Z3's maximum {what}"

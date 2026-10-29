@@ -8,10 +8,17 @@ binary from the GitHub release is therefore not used, and the Makefile pins no
 checksum for it.
 
 Z3 uses `Solver` and `parse_smt2_string`, or `Optimize` when the script holds
-Z3-specific commands such as `(maximize ...)`. cvc5 is never sent those.
+Z3-specific commands such as `(maximize ...)`. cvc5 is never sent those. Each
+Z3 call has a fresh `z3.Context`, so work done earlier in the same process
+cannot change Z3's search, and results do not depend on what ran before.
 
-`optimise_and_confirm` is the one routine for an optimum: Z3 finds it and cvc5
-confirms that nothing better exists.
+`optimise_and_confirm` is the one routine for an optimum. It does not use
+Z3's `Optimize` engine, whose run time on the project's queries had a long
+tail (measured with Z3 5.3.2 on 29 October 2026, on the timing query over 100
+random seeds: a median of 0.46 s, 5.4 s at the 90th percentile and once over
+30 s). Instead it searches with plain satisfiability
+checks: Z3 finds a model, then is asked for a better one until it proves that
+none exists, and cvc5 then confirms independently that nothing better exists.
 
 A timeout gives status "unknown". So does a Z3 optimisation that answers sat
 without proving the objective optimal, because that model is not a result.
@@ -24,6 +31,7 @@ constant of another sort (Real, for example) in a satisfiable script raises
 """
 
 import re
+import time
 from dataclasses import dataclass
 from typing import Literal
 
@@ -70,7 +78,8 @@ class Optimum:
 
     `value` and `model` are Z3's optimum, and are kept when only cvc5 could not
     confirm it (`status` "unknown", `confirmed` False). They are None when Z3
-    found nothing, whether the script is infeasible or Z3 ran out of time.
+    did not prove an optimum: the script is infeasible, or Z3 answered unknown
+    or ran out of time before proving that nothing better exists.
     """
 
     status: Literal["optimal", "unknown", "infeasible"]
@@ -94,40 +103,91 @@ def optimise_and_confirm(
 
     `lines` are the script's commands without `(check-sat)`; the list is not
     changed. The objective is declared as `|bm.objective|`, so its value is
-    read from the model. Z3 maximises or minimises it, and cvc5 is then asked
-    for a value above the maximum (or below the minimum) within the same lines.
+    read from the model.
 
-    Raises `SolverDisagreement`, carrying `context`, if cvc5 finds one. If Z3
-    is unsat the status is "infeasible", and if Z3 or cvc5 is unknown the
-    status is "unknown". Neither is ever read as an optimum.
+    Z3 searches with plain satisfiability checks, all within `timeout_ms`.
+    Its first model gives a value v. Each later check asks for an objective at
+    least some target beyond v: the targets gallop away from v, doubling the
+    step, until one is unsat, then bisect between the best value found and
+    that target. A wide objective, such as earnings over a range of pence,
+    takes about two checks per bit of the range. The search ends when Z3
+    proves that nothing above the maximum (or below the minimum) is sat.
+    cvc5 is then asked, as an independent check, for a value above the maximum
+    (or below the minimum) within the same lines, and must answer unsat.
+
+    Raises `SolverDisagreement`, carrying `context`, if cvc5 finds one. If Z3's
+    first check is unsat the status is "infeasible". If any Z3 check is
+    unknown, or the time runs out before Z3 proves the optimum, the status is
+    "unknown" with no value: an unbounded objective ends this way. If cvc5 is
+    unknown the status is "unknown" and Z3's optimum is kept. Neither unknown
+    is ever read as an optimum.
     """
     if direction not in ("max", "min"):
         raise ValueError(f"direction must be 'max' or 'min', not {direction!r}")
     name = f"|{OBJECTIVE}|"
     base = [*lines, f"(declare-const {name} Int)", f"(assert (= {name} {objective}))"]
-    command = "maximize" if direction == "max" else "minimize"
-    z3_script = "\n".join([*base, f"({command} {name})", "(check-sat)"]) + "\n"
-    z3_result = run("z3", z3_script, timeout_ms)
-    if z3_result.status != "sat":
-        status = "infeasible" if z3_result.status == "unsat" else "unknown"
+    # The search works on sign * objective, so that better is always larger.
+    sign = 1 if direction == "max" else -1
+    at_least = ">=" if direction == "max" else "<="
+    deadline = time.monotonic() + timeout_ms / 1000
+
+    def z3_check(target: int | None) -> SolverResult:
+        remaining_ms = int((deadline - time.monotonic()) * 1000)
+        if remaining_ms < 1:
+            return SolverResult("unknown", None, _z3_version())
+        extra = [] if target is None else [f"(assert ({at_least} {name} {_int(sign * target)}))"]
+        return run("z3", "\n".join([*base, *extra, "(check-sat)"]) + "\n", remaining_ms)
+
+    def unknown() -> Optimum:
         # cvc5 does not run, so its version is read from the package.
-        return Optimum(status, None, None, versions(), False)
-    value = z3_result.model[OBJECTIVE]
+        return Optimum("unknown", None, None, versions(), False)
+
+    first = z3_check(None)
+    if first.status == "unsat":
+        return Optimum("infeasible", None, None, versions(), False)
+    if first.status == "unknown":
+        return unknown()
+    model = first.model
+    best = sign * model[OBJECTIVE]  # the best value found so far, as sign * objective
+    above: int | None = None  # the least value proved out of reach, once one is
+    step = 1
+    while True:
+        if above is None:
+            target = best + step
+            step *= 2
+        elif above == best + 1:
+            break
+        else:
+            target = best + (above - best) // 2
+        found = z3_check(target)
+        if found.status == "unknown":
+            return unknown()
+        if found.status == "unsat":
+            above = target
+            proof = found  # Z3's unsat for the last target
+        else:
+            model = found.model
+            best = sign * model[OBJECTIVE]
+    value = sign * best
 
     better = ">" if direction == "max" else "<"
-    literal = str(value) if value >= 0 else f"(- {-value})"
-    confirm = "\n".join([*base, f"(assert ({better} {name} {literal}))", "(check-sat)"]) + "\n"
+    confirm = "\n".join([*base, f"(assert ({better} {name} {_int(value)}))", "(check-sat)"]) + "\n"
     cvc5_result = run("cvc5", confirm, timeout_ms)
     if cvc5_result.status == "sat":
         what = f"cvc5 finds an objective {'above' if direction == 'max' else 'below'} {value}"
-        raise SolverDisagreement(z3_result, cvc5_result, f"{context}: {what}" if context else what)
+        raise SolverDisagreement(proof, cvc5_result, f"{context}: {what}" if context else what)
     return Optimum(
         "optimal" if cvc5_result.status == "unsat" else "unknown",
         value,
-        z3_result.model,
-        {"z3": z3_result.version, "cvc5": cvc5_result.version},
+        model,
+        {"z3": proof.version, "cvc5": cvc5_result.version},
         cvc5_result.status == "unsat",
     )
+
+
+def _int(value: int) -> str:
+    """An SMT-LIB integer literal, which cannot be written with a minus sign."""
+    return str(value) if value >= 0 else f"(- {-value})"
 
 
 def versions() -> dict[str, str]:
@@ -158,15 +218,18 @@ def _unquote(symbol: str) -> str:
 
 def _run_z3(script: str, timeout_ms: int) -> SolverResult:
     version = _z3_version()
+    # A fresh context per call: Z3's shared main context keeps state between
+    # calls that changes the search, so results would depend on what ran first.
+    ctx = z3.Context()
     try:
         if _Z3_ONLY.search(script):
-            engine = z3.Optimize()
+            engine = z3.Optimize(ctx=ctx)
             engine.set("timeout", timeout_ms)
             engine.from_string(script)
         else:
-            engine = z3.Solver()
+            engine = z3.Solver(ctx=ctx)
             engine.set("timeout", timeout_ms)
-            engine.add(z3.parse_smt2_string(script))
+            engine.add(z3.parse_smt2_string(script, ctx=ctx))
         outcome = engine.check()
     except z3.Z3Exception as error:
         raise SolverError(f"z3 could not run the script: {error}") from error
@@ -185,9 +248,9 @@ def _run_z3(script: str, timeout_ms: int) -> SolverResult:
     for symbol, sort in _DECLARATION.findall(re.sub(r";[^\n]*", "", script)):
         name = _unquote(symbol)
         if sort == "Int":
-            values[name] = model.eval(z3.Int(name), model_completion=True).as_long()
+            values[name] = model.eval(z3.Int(name, ctx), model_completion=True).as_long()
         elif sort == "Bool":
-            values[name] = z3.is_true(model.eval(z3.Bool(name), model_completion=True))
+            values[name] = z3.is_true(model.eval(z3.Bool(name, ctx), model_completion=True))
         else:
             raise SolverError(f"z3 model value for {name} has sort {sort}; expected Int or Bool")
     return SolverResult("sat", values, version)

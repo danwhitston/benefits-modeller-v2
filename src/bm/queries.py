@@ -16,7 +16,8 @@ With earnings e and delta 100, it ends:
     (assert (= |bm.at_e| (|award| |a| |e| |b| |c|)))
     (declare-const |bm.at_e_plus_delta| Int)
     (assert (= |bm.at_e_plus_delta| (|award| |plus.a| |plus.e| |plus.b| |plus.c|)))
-    (maximize (- |bm.at_e| |bm.at_e_plus_delta|))
+
+and `bm.solvers.optimise_and_confirm` maximises (- |bm.at_e| |bm.at_e_plus_delta|).
 """
 
 from dataclasses import dataclass
