@@ -15,11 +15,13 @@ from bm.strategic import (
     NoHousehold,
     QueryRefused,
     ReplayMismatch,
+    JudgementResult,
     Split,
     TimingResult,
     cases,
     check_choice,
     judgement_points,
+    judgement_value,
     period_starts,
     replay,
     timing,
@@ -303,3 +305,93 @@ def test_replay_mismatch_raises():
     tampered = dataclasses.replace(witness, award=witness.award + 1)
     with pytest.raises(ReplayMismatch, match=f"{witness.kind}.*period {witness.period}"):
         replay(RULES, [tampered])
+
+
+def _value(fixed: dict[str, int | bool] | None = None) -> JudgementResult:
+    return judgement_value(_module(), SPECS, "has_lcw", fixed=fixed)
+
+
+def _assert_witnesses(result: JudgementResult, value: int, witnesses: list) -> None:
+    """The witnesses are the pair whose awards differ by `value`, with the point flipped."""
+    assert [(w.case, w.period, w.kind) for w in witnesses] == [
+        ({"has_lcw": True}, 1, "single"),
+        ({"has_lcw": False}, 1, "single"),
+    ]
+    yes, no = witnesses
+    assert yes.inputs["has_lcw"] is True and no.inputs["has_lcw"] is False
+    assert yes.award > 0 and no.award > 0
+    assert yes.award - no.award == value
+    # Everything but the point is the same household.
+    assert {k: v for k, v in yes.inputs.items() if k != "has_lcw"} == {
+        k: v for k, v in no.inputs.items() if k != "has_lcw"
+    }
+    assert yes.inputs["assessment_period_start"] == result.start
+
+
+def test_lcw_value_no_housing():
+    # 55% of the 710.00 pound work allowance without housing costs.
+    result = _value({"housing_costs_element": 0})
+    assert result.status == "optimal"
+    assert (result.largest, result.smallest) == (39_050, 0)
+    _assert_witnesses(result, 39_050, result.largest_witnesses)
+    _assert_witnesses(result, 0, result.smallest_witnesses)
+    assert result.smallest_witnesses[0].inputs["earned_income"] == 0
+    assert result.fixed == {"housing_costs_element": 0}
+    assert result.verification == {"cvc5": "confirmed", "replay": "matched"}
+
+
+def test_lcw_value_with_housing():
+    # 55% of the 427.00 pound work allowance when there is a housing costs element.
+    result = _value({"housing_costs_element": 50_000})
+    assert result.status == "optimal"
+    assert (result.largest, result.smallest) == (23_485, 0)
+    _assert_witnesses(result, 23_485, result.largest_witnesses)
+
+
+def test_lcw_value_overall():
+    # A free housing costs element can be 1p, which switches on the lower
+    # work allowance, so the largest value is the one without housing costs.
+    result = _value()
+    assert result.status == "optimal"
+    assert (result.largest, result.smallest) == (39_050, 0)
+
+
+def test_judgement_refuses():
+    with pytest.raises(QueryRefused, match="earned_income"):
+        judgement_value(_module(), SPECS, "earned_income", rules=None)
+    with pytest.raises(QueryRefused, match="nope"):
+        judgement_value(_module(), SPECS, "nope", rules=None)
+    # Review Focus 4: a point the caller has fixed is no longer the decision maker's.
+    with pytest.raises(QueryRefused, match="has_lcw"):
+        judgement_value(_module(), SPECS, "has_lcw", fixed={"has_lcw": True}, rules=None)
+
+
+def test_judgement_refuses_fixing_the_start_or_an_unknown_input():
+    for name in ("assessment_period_start", "nope"):
+        with pytest.raises(QueryRefused, match=name):
+            judgement_value(_module(), SPECS, "has_lcw", fixed={name: 0}, rules=None)
+
+
+def test_judgement_unknown_is_not_a_value(monkeypatch):
+    # Z3 out of time gives no value, and cvc5 unable to confirm keeps Z3's.
+    real = solvers.optimise_and_confirm
+
+    def stub(lines, objective, direction, timeout_ms, context=""):
+        found = real(lines, objective, direction, timeout_ms, context)
+        if direction == "max":
+            return solvers.Optimum("unknown", None, None, found.versions, False)
+        return dataclasses.replace(found, status="unknown", confirmed=False)
+
+    monkeypatch.setattr(solvers, "optimise_and_confirm", stub)
+    result = _value({"housing_costs_element": 0})
+    assert result.status == "unknown"
+    assert result.largest is None and result.largest_witnesses == []
+    assert result.smallest == 0 and len(result.smallest_witnesses) == 2
+    assert result.verification == {"cvc5": "unknown", "replay": "matched"}
+
+
+def test_judgement_no_household():
+    # Without LCW the award at 25 or over is nil from about 772.55 pounds of earnings.
+    fixed = {"housing_costs_element": 0, "aged_25_or_over": True, "earned_income": 200_000}
+    with pytest.raises(NoHousehold):
+        judgement_value(_module(), SPECS, "has_lcw", fixed=fixed, rules=None)

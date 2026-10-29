@@ -58,6 +58,21 @@ with several it is `|bm.gain|`, as below. For the case with LCW, it reads:
 
 Every optimum is confirmed by cvc5 (`bm.solvers.optimise_and_confirm`) and
 replayed through Catala's interpreter (`replay`).
+
+**Value of a judgement point** (`judgement_value`). For a Boolean judgement
+point, in the first period only, the value to a household of the decision
+maker's finding is award(point true) - award(point false), in pence. Two
+households, `yes` and `no`, share every fact (`fact.<name>` constants, as
+above) and differ only in the point. Both awards must be above nil, because the
+end of an award is not modelled. The query finds the largest and the smallest
+value over the households the caller leaves free:
+
+    (declare-const |bm.value| Int)
+    (assert (= |bm.value| (- |bm.award.yes| |bm.award.no|)))
+
+The value is left unbounded. A lower bound of 0 would be sound for the largest,
+because LCW only adds a work allowance, but it would be unsound for the smallest,
+where it could hide a negative value, and the queries are fast without one.
 """
 
 import calendar
@@ -333,15 +348,7 @@ def _script(
     """The timing script for the numbered cases, its households and each case's gain."""
     script = Script(module, bounds(specs))
     points = {name for _, case in numbered for name in case}
-    facts = {}
-    for name, spec in specs.items():
-        if name in (choice.input, START) or name in points:
-            continue
-        sort = script.sorts[name]
-        value = literal(sort, fixed[name]) if name in fixed else None
-        facts[name] = script.declare(f"fact.{name}", sort, value)
-        if spec.bound is not None:
-            script.bound(facts[name], spec.bound)
+    facts = _facts(script, specs, fixed, {choice.input, START, *points})
 
     first = script.declare("choice.1", "Int")
     script.bound(first, specs[choice.input].bound)
@@ -376,6 +383,22 @@ def _script(
     return script, households, gains
 
 
+def _facts(
+    script: Script, specs: dict[str, InputSpec], fixed: dict[str, int | bool], skip: set[str]
+) -> dict[str, str]:
+    """Declare `fact.<name>` for each input not in `skip`: fixed, or free within its bound."""
+    facts = {}
+    for name, spec in specs.items():
+        if name in skip:
+            continue
+        sort = script.sorts[name]
+        value = literal(sort, fixed[name]) if name in fixed else None
+        facts[name] = script.declare(f"fact.{name}", sort, value)
+        if spec.bound is not None:
+            script.bound(facts[name], spec.bound)
+    return facts
+
+
 def _witnesses(households: list[_Household], model: solvers.Model) -> list[Witness]:
     return [
         Witness(h.case, h.period, h.kind, h.instance.household(model), model[h.award[1:-1]])
@@ -399,3 +422,118 @@ def replay(rules: Path, witnesses: list[Witness]) -> None:
             ) from error
         if award != w.award:
             raise ReplayMismatch(f"at {where}: Catala gives an award of {award}, Z3 {w.award}")
+
+
+@dataclass(frozen=True)
+class JudgementResult:
+    """The outcome of `judgement_value`.
+
+    `largest` and `smallest` are award(point true) - award(point false) in
+    pence, Z3's optima, or None where Z3 found none. `status` is "optimal"
+    only when cvc5 confirmed both; otherwise it is "unknown", which never
+    means the value is nil. Each list of witnesses holds the household with the
+    point true, then the same household with it false (kind "single", period 1).
+    """
+
+    point: str
+    status: Literal["optimal", "unknown"]
+    largest: int | None
+    smallest: int | None
+    largest_witnesses: list[Witness]
+    smallest_witnesses: list[Witness]
+    fixed: dict[str, int | bool]
+    start: int  # days since 1970-01-01
+    verification: dict[str, str]  # {"cvc5": "confirmed"|"unknown", "replay": "matched"|"not run"}
+    versions: dict[str, str]
+
+
+def judgement_value(
+    module: SmtModule,
+    specs: dict[str, InputSpec],
+    point: str,
+    start: date = DEFAULT_START,
+    fixed: dict[str, int | bool] | None = None,
+    rules: Path | None = RULES,
+    timeout_ms: int = 60_000,
+) -> JudgementResult:
+    """The largest and smallest worth of the decision maker's finding on `point`.
+
+    The value is the award with the point true less the award with it false,
+    in the assessment period starting on `start`, over every household that
+    keeps both awards above nil. `fixed` gives other inputs a value, in SMT
+    units. Inputs other than `point` stay free unless fixed, including any
+    other judgement point, which then takes the same value in both households.
+    Every optimum Z3 finds is replayed through Catala from `rules`, unless
+    `rules` is None.
+
+    Raises `QueryRefused` if `point` is not an unfixed Boolean judgement point
+    or the query's inputs are otherwise not ones it can answer for,
+    `NoHousehold` if no household keeps both awards above nil,
+    `SolverDisagreement` if cvc5 finds a better value than Z3's optimum, and
+    `ReplayMismatch` if Catala's award at a witness differs from Z3's.
+    """
+    fixed = dict(fixed or {})
+    for name in fixed:
+        if name not in specs:
+            raise QueryRefused(f"{name} is not an input, so it cannot be fixed")
+        if name == START:
+            raise QueryRefused(f"{name} is set by the period's start, not fixed")
+    if point in fixed:
+        raise QueryRefused(f"{point} is fixed, so it is not a judgement point to value")
+    if point not in judgement_points(specs, fixed):
+        reason = "not an input" if point not in specs else "not controlled by the decision maker"
+        raise QueryRefused(f"{point} is {reason}, so it is not a judgement point")
+    cases(specs, [point])  # refuses a point that is not Boolean
+    (start_day,) = (units.days(d) for d in period_starts(start, specs, periods=1))
+
+    script = Script(module, bounds(specs))
+    facts = _facts(script, specs, fixed, {START, point})
+    households = []
+    awards = []
+    for value in (True, False):
+        kind = "yes" if value else "no"
+        equal = {**facts, START: literal("Int", start_day), point: literal("Bool", value)}
+        instance = script.instance(kind, equal=equal)
+        award = script.declare(f"bm.award.{kind}", "Int", instance.output(AWARD))
+        script.add(f"(assert (> {award} 0))")
+        households.append(_Household({point: value}, 1, "single", instance, award))
+        awards.append(award)
+    objective = script.declare("bm.value", "Int", f"(- {awards[0]} {awards[1]})")
+
+    def optimise(direction: Literal["max", "min"]):
+        # No bound on the value: the sign of the value is part of what the
+        # query finds, and the optimisations are fast without one.
+        optimum = solvers.optimise_and_confirm(
+            script.lines, objective, direction, timeout_ms, f"a {direction} value for {point}"
+        )
+        if optimum.status == "infeasible":
+            raise NoHousehold(
+                "no household keeps both awards above nil, within the bounds and the fixed values"
+            )
+        witnesses = [] if optimum.model is None else _witnesses(households, optimum.model)
+        return optimum, witnesses
+
+    largest, largest_witnesses = optimise("max")
+    smallest, smallest_witnesses = optimise("min")
+
+    replayed = "not run"
+    if rules is not None and (largest_witnesses or smallest_witnesses):
+        replay(rules, largest_witnesses)
+        replay(rules, smallest_witnesses)
+        replayed = "matched"
+    optima = [largest, smallest]
+    return JudgementResult(
+        point=point,
+        status="optimal" if all(o.status == "optimal" for o in optima) else "unknown",
+        largest=largest.value,
+        smallest=smallest.value,
+        largest_witnesses=largest_witnesses,
+        smallest_witnesses=smallest_witnesses,
+        fixed=fixed,
+        start=start_day,
+        verification={
+            "cvc5": "confirmed" if all(o.confirmed for o in optima) else "unknown",
+            "replay": replayed,
+        },
+        versions=largest.versions,
+    )
