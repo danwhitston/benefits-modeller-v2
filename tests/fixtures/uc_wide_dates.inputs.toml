@@ -1,0 +1,13 @@
+# Bounds for the Catala scope UniversalCredit with start dates from 1 March
+# 2026, before the 2026/27 rates apply. The coverage tests use this file to
+# check that the gap before 6 April 2026 is found.
+
+[inputs.assessment_period_start]
+type = "date"
+min = 2026-03-01
+max = 2027-04-05
+
+[inputs.earned_income]
+type = "money"
+min = "0.00"
+max = "10000.00"
