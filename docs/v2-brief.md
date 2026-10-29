@@ -122,7 +122,7 @@ The repository is public. Methods, models and findings about classes of input an
 
 ## Open questions for design
 
-Questions 1, 2, 3 and 7, and parts of 8 and 9, are answered for milestone 1 in the [walking skeleton design](superpowers/specs/2026-10-29-walking-skeleton-design.md) (29 October 2026). Question 6 is answered by the [quantifier tractability spike](spike-quantifier-tractability.md) (29 October 2026): at the first version's size (two periods) both forms are trivial for Z3 and cvc5, quantified queries degrade sharply with more free choices, and milestone 2 should expand judgement points into finite cases by default. Questions 4 and 5 stay open until milestone 2.
+Questions 1, 2, 3 and 7, and parts of 8 and 9, are answered for milestone 1 in the [walking skeleton design](superpowers/specs/2026-10-29-walking-skeleton-design.md) (29 October 2026). Question 6 is answered by the [quantifier tractability spike](spike-quantifier-tractability.md) (29 October 2026): at the first version's size (two periods) both forms are trivial for Z3 and cvc5, quantified queries degrade sharply with more free choices, and milestone 2 should expand judgement points into finite cases by default. Questions 4 and 5 are answered for milestone 2 under [Milestones](#milestones) (29 October 2026).
 
 1. Which artefacts come first: the Catala rules, or a minimal SMT translator for a handful of hand-written rules?
 2. Translate from which Catala intermediate representation, and how stable is it between releases?
@@ -133,3 +133,51 @@ Questions 1, 2, 3 and 7, and parts of 8 and 9, are answered for milestone 1 in t
 7. Which PolicyEngine engine to test against, and how to map its variables onto ours?
 8. How to generate test households: random, solver-generated near boundaries, or drawn from FRS records?
 9. How should findings be presented: a command-line report, notebooks, or pages suitable for writing up?
+
+## Milestones
+
+Each milestone is a thin slice through every layer, widened from the one before. Items that milestone 1's per-task and whole-branch reviews deferred are placed below under the milestone or pull request expected to deal with them, so that none is lost. Plans for later work are candidates, not commitments.
+
+### Milestone 1: walking skeleton (done)
+
+Merged on 29 October 2026. [Design](superpowers/specs/2026-10-29-walking-skeleton-design.md), [plan](superpowers/plans/2026-10-29-walking-skeleton.md).
+
+### Milestone 2: the first strategic query (in design)
+
+Scope agreed on 29 October 2026. [Design](superpowers/specs/2026-10-29-first-strategic-query-design.md).
+
+- **Query.** For a single claimant across two assessment periods: how much can the claimant gain by choosing when earnings fall between the two periods, whatever the decision maker finds on limited capability for work? And what is that finding worth on its own? The claimant's choice is how a fixed total of earnings is split between the periods. Splits are limited to those where the award stays above nil in both periods, because surplus earnings are not modelled (see [model gaps](model-gaps.md)). Within that limit, any gain comes from rounding.
+- **Rules.** A housing costs element, taken as one monthly input, which adds to the maximum amount and brings in the lower work allowance. The Catala scope still covers one assessment period. The query calls it once for each period. A scope that covers several periods waits until a rule crosses periods.
+- **Input labels (open question 4).** In `rules/uc.inputs.toml`, next to each input's bounds: who controls the input, and how it is checked.
+- **Judgement points (open question 5).** An input labelled as controlled by a decision maker is a judgement point. It is a Boolean or a small enumeration, and queries expand it into its cases, as the [quantifier spike](spike-quantifier-tractability.md) recommends: `forall` is kept only as a cross-check on small instances, and the number of judgement points and free choices in a query is capped. Probabilities are left out for now.
+- **Refactors first.** These are needed before adding inputs:
+  - A shared units module. `EPOCH` is defined in six modules, and pounds and pence are converted in four different ways (`bounds`, `catala_run`, `policyengine`, `report`).
+  - A single builder for a valid household. Declaring the input constants, bounding them and asserting that no obligation holds is written out four times (`coverage`, `queries.emr`, `households.last_penny_earnings`, `evaluate`). The "Z3 optimises, cvc5 confirms" pattern appears twice, with different handling of *unknown*.
+  - Input names read from `uc.inputs.toml`. They are currently hard-coded in `households`, `checks.run`, `policyengine` and `cli`.
+  - Document the `.defined` flag on `SmtModule` and `Obligation`. It is true at `error_on_empty` sites even where Catala raises an error, so every query must assert that no obligation holds.
+- **Translator.** cvc5 rejects a unary `(+ x)`, so a sum with one term must be special-cased.
+- **Report and CLI.** A top-level indicator in the JSON report that a result was *unknown*, and CLI tests for exit status 1 when the solvers disagree and for exit statuses 1 and 2 from coverage.
+- **PolicyEngine UK.** Map the housing costs element, so that differential tests cover the new rules. PolicyEngine works out the element from rent and tenure, so the mapping chooses a tenure under which its element equals our input. If that proves unreliable, the difference is logged as deliberate.
+
+### Tidy-up between milestones
+
+A small pull request, separate from any milestone:
+
+- `code_commit` in the provenance record does not say whether the working tree was dirty.
+- Tests that use `timeout_ms=1` could fail intermittently on a fast runner.
+- The mismatch count in the [mismatch log](mismatches.md) is tied to one random draw and goes stale if the draw changes.
+- `ir.py` accepts a `bm_ir_version` of `false` or `0.0`.
+- The check that the rules are newer than the IR also reacts to stray editor files in `rules/`.
+- The mismatch log describes the rounding reading as one "the project owner confirmed". It should say the reading was adopted by the project, pending review by a benefits specialist, because the project has no specialist sign-off (see [model gaps](model-gaps.md)).
+
+### Candidates for later milestones
+
+Gaps in the model, and how each limits findings, are recorded in [model gaps](model-gaps.md). Remediation is planned from there.
+
+- **The rounding stage.** The stage at which regulation 6 rounds is an open question with three readings on record ([mismatch log](mismatches.md), entry 1). A query could make the rounding stage a parameter and have the solver bound how far the readings can disagree.
+- **Rules that cross assessment periods,** such as surplus earnings and an award ending after a nil period (regulation 54A). Until these are modelled, timing queries are limited to periods where the award stays above nil. These rules need a Catala scope covering several periods, and so calls to sub-scopes in the exporter and translator.
+- **Other strategic queries considered for milestone 2:** when pay falls, with the couple finding as the judgement point (needs joint claims, and a comparison of one joint claim with two single claims); and when self-employed receipts fall, with the "gainful self-employment" finding as the judgement point (needs the minimum income floor and the rules on self-employed earnings).
+- **The rest of the first version's rules:** income tax and National Insurance, the benefit cap and its earnings exemption, children, couples, and a fuller housing calculation (weekly rent, under-occupancy, the Local Housing Allowance).
+- **Translator gaps that this later content will reach:**
+  - Decimal rates with no terminating decimal form (for example 52/12, for converting weekly amounts to monthly) are written as `(/ a b)`, which Z3's linearity check rejects.
+  - A zero divisor in an unreachable division is refused, and Catala's `DivisionByZero` is not modelled as an obligation.
