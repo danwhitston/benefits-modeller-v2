@@ -493,3 +493,19 @@ def test_spread_and_payday_match_reference(claim):
         assert reference_uc.figure_value(name, _payday_copies(figure), *args) == figure.value
     replay(RULES, result)
     assert result.verification["replay"] == "matched"
+
+
+def test_seed_reaches_every_solver_call(monkeypatch):
+    # A probe sets the seed once, in `window`, and every optimisation and
+    # every check beneath it must carry it.
+    module, specs = _loaded()
+    seen = []
+    real_optimise = solvers.optimise_and_confirm
+
+    def optimise(*args, **kwargs):
+        seen.append(kwargs.get("seed"))
+        return real_optimise(*args, **kwargs)
+
+    monkeypatch.setattr(solvers, "optimise_and_confirm", optimise)
+    window(module, specs, fixed={**H, **REALISTIC}, total=300_000, figures=("gain",), seed=4)
+    assert seen == [4]

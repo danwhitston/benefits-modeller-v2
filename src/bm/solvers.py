@@ -107,6 +107,7 @@ def optimise_and_confirm(
     context: str = "",
     max_checks: int = 200,
     sort: Literal["Int", "Real"] = "Int",
+    seed: int | None = None,
 ) -> Optimum:
     """Z3 optimises the SMT-LIB term `objective`; cvc5 confirms nothing is better.
 
@@ -144,6 +145,10 @@ def optimise_and_confirm(
     probes only (see `bm.translate`), whose results are not findings about the
     rules.
 
+    `seed`, when given, is passed to every Z3 and cvc5 check (see `run`), for
+    measuring how solver time varies with the search; the default leaves each
+    solver's own seed alone.
+
     The timing figures in the module docstring were measured by a milestone 2
     reviewer, not by the code's author.
     """
@@ -153,6 +158,8 @@ def optimise_and_confirm(
         raise ValueError(f"sort must be 'Int' or 'Real', not {sort!r}")
     reals = sort == "Real"
     read = {"reals": True} if reals else {}  # the default is the Int and Bool reading
+    if seed is not None:
+        read["seed"] = seed
     name = f"|{OBJECTIVE}|"
     base = [*lines, f"(declare-const {name} {sort})", f"(assert (= {name} {objective}))"]
     # The search works on sign * objective, so that better is always larger.
@@ -246,14 +253,22 @@ def versions() -> dict[str, str]:
 
 
 def run(
-    solver: Literal["z3", "cvc5"], script: str, timeout_ms: int, reals: bool = False
+    solver: Literal["z3", "cvc5"],
+    script: str,
+    timeout_ms: int,
+    reals: bool = False,
+    seed: int | None = None,
 ) -> SolverResult:
-    """Run `script`. With `reals`, Real constants in a model are read as `Fraction`."""
+    """Run `script`. With `reals`, Real constants in a model are read as `Fraction`.
+
+    With a `seed`, Z3 runs with `smt.random_seed` and cvc5 with its `seed`
+    option set to it. The default leaves both at the solver's own.
+    """
     match solver:
         case "z3":
-            return _run_z3(script, timeout_ms, reals)
+            return _run_z3(script, timeout_ms, reals, seed)
         case "cvc5":
-            return _run_cvc5(script, timeout_ms, reals)
+            return _run_cvc5(script, timeout_ms, reals, seed)
     raise ValueError(f"unknown solver {solver!r}")
 
 
@@ -270,7 +285,9 @@ def _unquote(symbol: str) -> str:
     return symbol[1:-1] if symbol.startswith("|") else symbol
 
 
-def _run_z3(script: str, timeout_ms: int, reals: bool = False) -> SolverResult:
+def _run_z3(
+    script: str, timeout_ms: int, reals: bool = False, seed: int | None = None
+) -> SolverResult:
     version = _z3_version()
     # A fresh context per call: Z3's shared main context keeps state between
     # calls that changes the search, so results would depend on what ran first.
@@ -278,6 +295,8 @@ def _run_z3(script: str, timeout_ms: int, reals: bool = False) -> SolverResult:
     try:
         engine = z3.Solver(ctx=ctx)
         engine.set("timeout", timeout_ms)
+        if seed is not None:
+            engine.set("smt.random_seed", seed)
         engine.add(z3.parse_smt2_string(script, ctx=ctx))
         outcome = engine.check()
     except z3.Z3Exception as error:
@@ -303,12 +322,16 @@ def _run_z3(script: str, timeout_ms: int, reals: bool = False) -> SolverResult:
     return SolverResult("sat", values, version)
 
 
-def _run_cvc5(script: str, timeout_ms: int, reals: bool = False) -> SolverResult:
+def _run_cvc5(
+    script: str, timeout_ms: int, reals: bool = False, seed: int | None = None
+) -> SolverResult:
     tm = cvc5.TermManager()
     engine = cvc5.Solver(tm)
     version = _cvc5_version(engine)
     engine.setOption("produce-models", "true")
     engine.setOption("tlimit-per", str(timeout_ms))
+    if seed is not None:
+        engine.setOption("seed", str(seed))
     symbols = cvc5.SymbolManager(tm)
     parser = cvc5.InputParser(engine, symbols)
     if not _SET_LOGIC.search(script):

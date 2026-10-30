@@ -282,6 +282,7 @@ def window(
     probe: bool = False,
     cap: int = DEFAULT_CASE_CAP,
     timeout_ms: int = 60_000,
+    seed: int | None = None,
 ) -> WindowResult:
     """Each figure in each case, for a window of the module's length.
 
@@ -291,7 +292,9 @@ def window(
     be a multiple of 4.
     `fixed` gives household facts or judgement points a value, in SMT units;
     the starts and the earnings cannot be fixed. `timeout_ms` applies to each
-    optimisation (one per figure and case). The result is not replayed: call
+    optimisation (one per figure and case). `seed`, when given, is passed to
+    every solver check (see `bm.solvers.run`), for probes that measure how
+    solver time varies with the search. The result is not replayed: call
     `replay` for that.
 
     Raises `QueryRefused`, before any solver runs, for a window longer than 3
@@ -354,7 +357,7 @@ def window(
     ordered = sorted(
         ((case, _realistic(specs, given, case)) for case in all_cases), key=lambda c: not c[1]
     )
-    build = _Builder(module, specs, closed, starts, periods, total, whole)
+    build = _Builder(module, specs, closed, starts, periods, total, whole, seed)
     for case in all_cases:
         build.claim_after_end(case)  # refuses, before any solver, where it has no value
     results = []
@@ -459,7 +462,7 @@ class _Copy:
 class _Builder:
     """Builds and optimises the scripts of one query."""
 
-    def __init__(self, module, specs, fixed, starts, periods, total, whole):
+    def __init__(self, module, specs, fixed, starts, periods, total, whole, seed=None):
         self.module = module
         self.specs = specs
         self.fixed = fixed
@@ -467,6 +470,7 @@ class _Builder:
         self.periods = periods
         self.total = total
         self.whole = whole
+        self.seed = seed
         self.money = module.sorts["earnings_1"]  # Int, or Real when relaxed
         self._even_ok: dict[tuple, Literal["ok", "excluded", "unknown"]] = {}
 
@@ -540,6 +544,10 @@ class _Builder:
             )
         return value
 
+    def _seeded(self) -> dict[str, int]:
+        """The `seed` keyword for a solver call, or nothing where the caller gave none."""
+        return {} if self.seed is None else {"seed": self.seed}
+
     def even_verdict(self, case: dict[str, bool]) -> str | None:
         """The even-copy check's verdict for the case, or None where it has not run."""
         return self._even_ok.get(tuple(sorted(case.items())))
@@ -574,6 +582,7 @@ class _Builder:
             timeout_ms,
             f"a {name} {beyond} {what}",
             sort=self.money,
+            **self._seeded(),
         )
         if optimum.status == "infeasible":
             even = self._even(case, timeout_ms)
@@ -604,8 +613,8 @@ class _Builder:
     def _unsat(self, text: str, timeout_ms: int, what: str) -> Literal["sat", "unsat", "unknown"]:
         """Whether a script is unsat: both solvers must agree, or the answer is unknown."""
         reals = self.money == "Real"
-        z3_result = solvers.run("z3", text, timeout_ms, reals=reals)
-        cvc5_result = solvers.run("cvc5", text, timeout_ms, reals=reals)
+        z3_result = solvers.run("z3", text, timeout_ms, reals=reals, **self._seeded())
+        cvc5_result = solvers.run("cvc5", text, timeout_ms, reals=reals, **self._seeded())
         if {z3_result.status, cvc5_result.status} == {"sat", "unsat"}:
             raise solvers.SolverDisagreement(z3_result, cvc5_result, what)
         if z3_result.status == cvc5_result.status and z3_result.status in ("sat", "unsat"):

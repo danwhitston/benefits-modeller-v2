@@ -328,3 +328,58 @@ def test_real_minimum_with_a_fractional_infimum_is_the_ceiling():
     result = solvers.optimise_and_confirm(lines, "x", "min", 10_000, sort="Real")
     assert (result.status, result.value, result.confirmed) == ("optimal", 1, True)
     assert Fraction(3, 10) <= result.model["x"] <= 1
+
+
+def test_z3_seed_sets_its_random_seed(monkeypatch):
+    real = z3.Solver
+    options = []
+
+    def solver(*args, **kwargs):
+        engine = real(*args, **kwargs)
+        original = engine.set
+
+        def record(name, value):
+            options.append((name, value))
+            return original(name, value)
+
+        engine.set = record
+        return engine
+
+    monkeypatch.setattr(z3, "Solver", solver)
+    assert solvers.run("z3", SAT, 10_000, seed=7).status == "sat"
+    assert ("smt.random_seed", 7) in options
+    options.clear()
+    assert solvers.run("z3", SAT, 10_000).status == "sat"
+    assert not [o for o in options if "seed" in o[0]]
+
+
+def test_cvc5_seed_sets_its_seed_option(monkeypatch):
+    options = []
+
+    class Recording(solvers.cvc5.Solver):
+        def setOption(self, name, value):
+            options.append((name, value))
+            super().setOption(name, value)
+
+    monkeypatch.setattr(solvers.cvc5, "Solver", Recording)
+    assert solvers.run("cvc5", SAT, 10_000, seed=7).status == "sat"
+    assert ("seed", "7") in options
+    options.clear()
+    assert solvers.run("cvc5", SAT, 10_000).status == "sat"
+    assert not [o for o in options if o[0] == "seed"]
+
+
+def test_optimise_passes_the_seed_to_every_check(monkeypatch):
+    seen = []
+    real = solvers.run
+
+    def spy(solver, script, timeout_ms, **kwargs):
+        seen.append((solver, kwargs.get("seed")))
+        return real(solver, script, timeout_ms, **kwargs)
+
+    monkeypatch.setattr(solvers, "run", spy)
+    lines = ["(declare-const x Int)", "(assert (and (>= x 0) (<= x 9)))"]
+    result = solvers.optimise_and_confirm(lines, "x", "max", 10_000, seed=3)
+    assert (result.status, result.value) == ("optimal", 9)
+    assert {s for _, s in seen} == {3}
+    assert {name for name, _ in seen} == {"z3", "cvc5"}
