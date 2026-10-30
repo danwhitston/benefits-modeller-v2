@@ -115,6 +115,23 @@ def test_losing_the_lcw_finding_lowers_the_award_after_the_end():
     assert trace[2].award == 12_890
 
 
+def test_the_lcw_finding_stays_lost_for_the_rest_of_the_new_award():
+    # Period 1: 55% x (600,000 - 42,700) = 306,515, so nil; surplus
+    # 600,000 - 516,136 = 83,864. Period 2, the claim, without the work
+    # allowance: 55% x 83,864 = 46,125.2, so 46,125; 122,890 - 46,125 = 76,765.
+    # Period 3, live in the new award, still without the work allowance:
+    # 55% x 100,000 = 55,000; 122,890 - 55,000 = 67,890 (not 91,375, which
+    # the lower work allowance would give).
+    trace = run([600_000, 0, 100_000], case={"lcw_carries_over": False})
+    assert trace[0].award == 0
+    assert trace[0].surplus_after == 83_864
+    assert trace[1].earnings_used == 83_864
+    assert trace[1].award == 76_765
+    assert trace[1].entitled
+    assert trace[2].award == 67_890
+    assert sum(awards(trace)) == 144_655
+
+
 def test_an_award_that_ends_twice():
     household = {"aged_25": True, "lcw": False, "housing": 0}
     trace = run([300_000, 0, 300_000], household=household)

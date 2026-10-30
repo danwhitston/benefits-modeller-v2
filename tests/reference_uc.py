@@ -113,14 +113,21 @@ def window(
     All links checked 29 October 2026. A claim that fails carries on only the
     excess over the relevant threshold, if failed months count as claims
     (`claim_each_month`); otherwise the surplus is left as it was.
+
+    The limited capability for work finding holds in the first award. After
+    the end it is kept only if it carries over to a new award
+    (`lcw_carries_over`), and once lost it stays lost for the rest of the new
+    award, as the design reads it.
     """
     if len(earnings) != len(starts):
         raise ValueError("one start date is needed for each period's earnings")
-    live, surplus, months = True, 0, 0
+    live, surplus, months, lcw_in_force = True, 0, 0, lcw
     trace = []
     for earned, start in zip(earnings, starts):
         claim = (not live) and claim_after_end and 1 <= months <= MAX_CLAIMS_AFTER_END
-        lcw_used = lcw if live else (lcw and lcw_carries_over)
+        if not live:  # after the end, the finding is kept only if it carries over
+            lcw_in_force = lcw_in_force and lcw_carries_over
+        lcw_used = lcw_in_force
         used = earned + surplus if claim else earned
         paid = award(used, aged_25, lcw_used, housing) if (live or claim) else 0
         entitled = paid >= 1

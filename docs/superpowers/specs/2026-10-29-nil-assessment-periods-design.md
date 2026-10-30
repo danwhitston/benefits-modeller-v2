@@ -65,7 +65,7 @@ Checked on 29 October 2026 against legislation.gov.uk (latest revised versions) 
    - The rule does not apply to a claimant who has recently been a victim of domestic violence (paragraph (5)). The model does not represent that condition.
 5. **The nil UC threshold** is (M − U) / 55 × 100 + WA, where M is the maximum amount, U is unearned income and WA is the work allowance (regulation 54A(6); ADM H3308). The work allowance is not scaled. With no unearned income it is M × 20/11 + WA. The rules compute it as one amount, rounded once to the penny, as the ADM's worked example does (H3 Appendix 2, Example 1). Which period's M and WA apply is not stated. The rules measure each surplus against the thresholds of the period whose earnings are measured: the nil period for the original surplus, and the period of the failed claim for an adjusted surplus. The other reading, the period of the claim being decided, gives a different figure only when M or WA changes within the window, which in this model happens only when the LCW finding does not carry over. Unresolved. The reading is the project's, for specialist review.
 6. **The relevant threshold** is the nil UC threshold plus £2,500 for a claim in respect of a period beginning before the end of the temporary de minimis period, which ends on 31 March 2027 (S.I. 2015/345, [regulation 5](https://www.legislation.gov.uk/uksi/2015/345/regulation/5); the Secretary of State's [determination](https://www.gov.uk/government/publications/secretary-of-state-determination-under-regulation-5-of-the-universal-credit-surpluses-and-self-employed-losses-digital-service-amendment-regulatio--2/secretary-of-state-determination-under-regulation-5-of-the-universal-credit-surpluses-and-self-employed-losses-digital-service-amendment-regulatio), made 20 January 2026; ADM H3310, "ending on 31.03.27"). Otherwise it is the nil UC threshold plus £300. That a period beginning on 31 March 2027 itself takes £2,500 is the project's inference, as already recorded in [model gaps](../../model-gaps.md).
-7. **The LCW finding carrying over** to a new award within 6 months rests on DWP's "Re-claims" staff guide (V11.0, deposited in Parliament as [DEP2024-0442](https://data.parliament.uk/DepositedPapers/Files/DEP2024-0442/138._Reclaims_V11.0.pdf); V8.0 of 2022 has the same wording), which says a determination "remains valid" if the condition has not changed and the review date has not passed. Neither [regulation 39](https://www.legislation.gov.uk/uksi/2013/376/regulation/39) nor the ADM says so. It is a judgement point.
+7. **The LCW finding carrying over** to a new award within 6 months rests on DWP's "Re-claims" staff guide (V11.0, deposited in Parliament as [DEP2024-0442](https://data.parliament.uk/DepositedPapers/Files/DEP2024-0442/138._Reclaims_V11.0.pdf); V8.0 of 2022 has the same wording), which says a determination "remains valid" if the condition has not changed and the review date has not passed. Neither [regulation 39](https://www.legislation.gov.uk/uksi/2013/376/regulation/39) nor the ADM says so. It is a judgement point. Where the finding does not carry over, it is taken as lost for the whole of the new award, within the window, not only for the new award's first period, since the model has no new determination that could restore it. The reading is the project's, for specialist review.
 8. **Regulation [61(6)](https://www.legislation.gov.uk/uksi/2013/376/regulation/61),** substituted from 16 November 2020 by S.I. 2020/1138 after *SSWP v Johnson* [2020] EWCA Civ 778, lets the Secretary of State treat one of two payments reported in one assessment period as earnings of another period, for a person "paid on a regular monthly basis". For such claimants, a timing finding that puts two monthly payments in one period holds only if the discretion is not used. It does not cover weekly, fortnightly or four-weekly pay. Not modelled; recorded in model gaps.
 9. **The open account.** DWP keeps the account open through nil periods and closes it after 6 consecutive nil periods (see [what practice says](#what-practice-says)). The project reads the open account as how DWP administers regulation 32A, not as an award that continues at nil.
 
@@ -96,12 +96,12 @@ New sections after the per-period rules, each with the regulation text it implem
 **`WindowStep`**, written once. It works out one period, given the state the previous period left.
 
 - **Inputs:**
-  - the incoming state: `live` (the award continues into this period), `surplus` (money carried in) and `months_since_end` (0 in a live award; otherwise this period's number of months after the nil period);
+  - the incoming state: `live` (the award continues into this period), `surplus` (money carried in), `months_since_end` (0 in a live award; otherwise this period's number of months after the nil period) and `lcw` (the LCW finding in force: `has_lcw` in the first period, and afterwards the finding the previous period used);
   - this period's start date and earnings;
-  - the household facts: `aged_25_or_over`, `housing_costs_element` and `has_lcw`;
+  - the household facts: `aged_25_or_over` and `housing_costs_element`;
   - the judgement points: `claim_after_end`, `claim_each_month` and `lcw_carries_over`.
 - **A claim** is made in a period after the end when `claim_after_end` holds and `months_since_end` is between 1 and 5.
-- **The LCW finding used** is `has_lcw` in a live award, and `has_lcw and lcw_carries_over` after the end.
+- **The LCW finding used** is `lcw` in a live award, and `lcw and lcw_carries_over` after the end. It is carried to the next period, so a finding lost when a new award begins stays lost for the rest of that award, within the window (a ruling at the final review: the first version used `has_lcw` in every live period, which brought the finding back a period after the new award began).
 - **Earnings used** are the period's earnings, plus the incoming surplus when a claim is made after the end.
 - **The period's figures** come from a sub-scope `uc scope UniversalCredit`, called with the earnings used and the LCW finding used.
 - **The award** is the sub-scope's award in a live award or when a claim is made, and £0 otherwise. **Entitled** means an award of at least 1p, tested on the award itself rather than on the threshold, since the boundary lies about a penny below the threshold.
@@ -109,6 +109,7 @@ New sections after the per-period rules, each with the regulation text it implem
 - **The outgoing state:**
   - `live` next is `entitled`.
   - `months_since_end` next is 0 if entitled, 1 if this period ended a live award, and one more than now otherwise.
+  - `lcw` next is the LCW finding used.
   - `surplus` next is:
     - £0 if entitled;
     - max(£0, earnings − relevant threshold) if this period ended a live award (the original surplus);
@@ -118,7 +119,7 @@ New sections after the per-period rules, each with the regulation text it implem
 
 A second nil period after a new award starts both chains again, because entitlement resets the state. The 5-month limit is a rule in the step, so a window longer than 3 periods needs no new rules.
 
-**`ClaimWindow`** chains `step_1` to `step_3`. The first step's state is live, with no surplus and `months_since_end` of 0. Each later step takes the previous step's outgoing state. Its outputs are each step's figures and `total_award`, the sum of the three awards.
+**`ClaimWindow`** chains `step_1` to `step_3`. The first step's state is live, with no surplus, `months_since_end` of 0 and `lcw` of `has_lcw`. Each later step takes the previous step's outgoing state. Its outputs are each step's figures and `total_award`, the sum of the three awards.
 
 **`ClaimWindow4`, `ClaimWindow5` and `ClaimWindow6`** chain 4, 5 and 6 steps over the same `WindowStep`. They exist for the scaling probe only.
 

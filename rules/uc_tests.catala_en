@@ -612,6 +612,52 @@ scope TestWindowLcwLost:
   assertion (computation.award_3 = $128.90)
 ```
 
+## Window: household H, the LCW finding stays lost in the new award
+
+```catala
+#[test]
+declaration scope TestWindowLcwStaysLost:
+  output computation content Uc.ClaimWindow
+
+scope TestWindowLcwStaysLost:
+  # Period 1: 6,000.00 - 427.00 = 5,573.00; 55% x 5,573.00 = 3,065.15, more
+  # than 1,228.90, so the award is nil and ends. Original surplus:
+  # 6,000.00 - 5,161.36 = 838.64.
+  # Period 2, the first claim: 0.00 + 838.64 = 838.64 used. The LCW finding
+  # does not carry over, so no work allowance applies: 55% x 838.64 =
+  # 461.252, which rounds to 461.25; 1,228.90 - 461.25 = 767.65. The claim
+  # succeeds. The nil UC threshold without the work allowance is 2,234.36.
+  # Period 3: the new award continues, still without the LCW finding, so
+  # still no work allowance: 55% x 1,000.00 = 550.00; 1,228.90 - 550.00 =
+  # 678.90. With the finding back it would be 1,228.90 - 55% x 573.00 =
+  # 913.75.
+  # Total: 767.65 + 678.90 = 1,446.55.
+  definition computation equals
+    output of Uc.ClaimWindow with {
+      -- start_1: |2026-04-06|
+      -- start_2: |2026-05-06|
+      -- start_3: |2026-06-06|
+      -- earnings_1: $6,000.00
+      -- earnings_2: $0.00
+      -- earnings_3: $1,000.00
+      -- aged_25_or_over: true
+      -- housing_costs_element: $804.00
+      -- has_lcw: true
+      -- claim_after_end: true
+      -- claim_each_month: true
+      -- lcw_carries_over: false
+    }
+  assertion (computation.award_1 = $0.00)
+  assertion (computation.surplus_after_1 = $838.64)
+  assertion (computation.earnings_used_2 = $838.64)
+  assertion (computation.nil_uc_threshold_2 = $2,234.36)
+  assertion (computation.award_2 = $767.65)
+  assertion (computation.entitled_2)
+  assertion (computation.nil_uc_threshold_3 = $2,234.36)
+  assertion (computation.award_3 = $678.90)
+  assertion (computation.total_award = $1,446.55)
+```
+
 ## Window: the award ends twice
 
 ```catala
@@ -673,7 +719,7 @@ scope TestStepThreshold300:
       -- earnings: $3,000.00
       -- aged_25_or_over: true
       -- housing_costs_element: $0.00
-      -- has_lcw: false
+      -- lcw: false
       -- claim_after_end: true
       -- claim_each_month: true
       -- lcw_carries_over: true
@@ -707,7 +753,7 @@ scope TestStepThreshold2500:
       -- earnings: $3,000.00
       -- aged_25_or_over: true
       -- housing_costs_element: $0.00
-      -- has_lcw: false
+      -- lcw: false
       -- claim_after_end: true
       -- claim_each_month: true
       -- lcw_carries_over: true
@@ -735,7 +781,7 @@ scope TestStepSixthMonth:
       -- earnings: $0.00
       -- aged_25_or_over: true
       -- housing_costs_element: $0.00
-      -- has_lcw: false
+      -- lcw: false
       -- claim_after_end: true
       -- claim_each_month: true
       -- lcw_carries_over: true

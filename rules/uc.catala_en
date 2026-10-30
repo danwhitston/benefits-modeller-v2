@@ -241,8 +241,9 @@ about:
 Simplifications, in addition to those of the rules above:
 
 * The state carried from one period to the next is whether the award is live,
-  the surplus carried in, and how many months have passed since the award
-  ended. Nothing else carries over: each period's award is worked out afresh.
+  the surplus carried in, how many months have passed since the award ended,
+  and whether the limited capability for work finding is in force. Nothing
+  else carries over: each period's award is worked out afresh.
 * A fresh claim within 6 months of the end is treated in the same way as a
   claim treated as made under regulation 32A.
 * Regulation 32A's extension for a claimant on a funded employment scheme is
@@ -264,7 +265,9 @@ Simplifications, in addition to those of the rules above:
 `live` means that the award continues into this period. `months_since_end` is
 0 in a live award, and otherwise the number of months since the nil period
 that ended it: 1 for the month after the nil period, and so on. `surplus` is
-the surplus earnings carried in.
+the surplus earnings carried in. `lcw` is whether the limited capability for
+work finding is in force: the claimant's finding in the first period, and
+afterwards the finding that the previous period used.
 
 ```catala-metadata
 declaration scope WindowStep:
@@ -275,7 +278,7 @@ declaration scope WindowStep:
   input earnings content money
   input aged_25_or_over content boolean
   input housing_costs_element content money
-  input has_lcw content boolean
+  input lcw content boolean
   input claim_after_end content boolean
   input claim_each_month content boolean
   input lcw_carries_over content boolean
@@ -290,6 +293,7 @@ declaration scope WindowStep:
   output live_next content boolean
   output surplus_next content money
   output months_since_end_next content integer
+  output lcw_next content boolean
 ```
 
 ## Claims after the award ends
@@ -330,10 +334,17 @@ condition has not changed and the review date has not passed (V11.0,
 checked 29 October 2026). After the end, the finding is used only when
 `lcw_carries_over` holds.
 
+The finding used is carried to the next period. So a finding that is lost
+when a new award begins after the end stays lost for the rest of that award,
+within the window, rather than coming back once the new award is live. This
+is the project's reading, for specialist review.
+
 ```catala
 scope WindowStep:
   definition lcw_used equals
-    if live then has_lcw else has_lcw and lcw_carries_over
+    if live then lcw else lcw and lcw_carries_over
+
+  definition lcw_next equals lcw_used
 ```
 
 ## Earnings used
@@ -514,9 +525,10 @@ scope WindowStep:
 ## The window of three periods
 
 `ClaimWindow` chains three steps. The window starts in a live award, with no
-surplus carried in. Each later step takes the state that the previous step
-left. The household facts and the three judgement points are the same in
-every period. The start dates are inputs, one calendar month apart, worked out
+surplus carried in and with the claimant's limited capability for work
+finding (`has_lcw`) in force. Each later step takes the state that the
+previous step left, including the finding in force. The other household facts
+and the three judgement points are the same in every period. The start dates are inputs, one calendar month apart, worked out
 by the caller.
 
 `surplus_after_<k>` is the surplus that step k carries to the next period, and
@@ -569,7 +581,7 @@ scope ClaimWindow:
   definition step_1.earnings equals earnings_1
   definition step_1.aged_25_or_over equals aged_25_or_over
   definition step_1.housing_costs_element equals housing_costs_element
-  definition step_1.has_lcw equals has_lcw
+  definition step_1.lcw equals has_lcw
   definition step_1.claim_after_end equals claim_after_end
   definition step_1.claim_each_month equals claim_each_month
   definition step_1.lcw_carries_over equals lcw_carries_over
@@ -580,7 +592,7 @@ scope ClaimWindow:
   definition step_2.earnings equals earnings_2
   definition step_2.aged_25_or_over equals aged_25_or_over
   definition step_2.housing_costs_element equals housing_costs_element
-  definition step_2.has_lcw equals has_lcw
+  definition step_2.lcw equals step_1.lcw_next
   definition step_2.claim_after_end equals claim_after_end
   definition step_2.claim_each_month equals claim_each_month
   definition step_2.lcw_carries_over equals lcw_carries_over
@@ -591,7 +603,7 @@ scope ClaimWindow:
   definition step_3.earnings equals earnings_3
   definition step_3.aged_25_or_over equals aged_25_or_over
   definition step_3.housing_costs_element equals housing_costs_element
-  definition step_3.has_lcw equals has_lcw
+  definition step_3.lcw equals step_2.lcw_next
   definition step_3.claim_after_end equals claim_after_end
   definition step_3.claim_each_month equals claim_each_month
   definition step_3.lcw_carries_over equals lcw_carries_over
@@ -682,7 +694,7 @@ scope ClaimWindow4:
   definition step_1.earnings equals earnings_1
   definition step_1.aged_25_or_over equals aged_25_or_over
   definition step_1.housing_costs_element equals housing_costs_element
-  definition step_1.has_lcw equals has_lcw
+  definition step_1.lcw equals has_lcw
   definition step_1.claim_after_end equals claim_after_end
   definition step_1.claim_each_month equals claim_each_month
   definition step_1.lcw_carries_over equals lcw_carries_over
@@ -693,7 +705,7 @@ scope ClaimWindow4:
   definition step_2.earnings equals earnings_2
   definition step_2.aged_25_or_over equals aged_25_or_over
   definition step_2.housing_costs_element equals housing_costs_element
-  definition step_2.has_lcw equals has_lcw
+  definition step_2.lcw equals step_1.lcw_next
   definition step_2.claim_after_end equals claim_after_end
   definition step_2.claim_each_month equals claim_each_month
   definition step_2.lcw_carries_over equals lcw_carries_over
@@ -704,7 +716,7 @@ scope ClaimWindow4:
   definition step_3.earnings equals earnings_3
   definition step_3.aged_25_or_over equals aged_25_or_over
   definition step_3.housing_costs_element equals housing_costs_element
-  definition step_3.has_lcw equals has_lcw
+  definition step_3.lcw equals step_2.lcw_next
   definition step_3.claim_after_end equals claim_after_end
   definition step_3.claim_each_month equals claim_each_month
   definition step_3.lcw_carries_over equals lcw_carries_over
@@ -715,7 +727,7 @@ scope ClaimWindow4:
   definition step_4.earnings equals earnings_4
   definition step_4.aged_25_or_over equals aged_25_or_over
   definition step_4.housing_costs_element equals housing_costs_element
-  definition step_4.has_lcw equals has_lcw
+  definition step_4.lcw equals step_3.lcw_next
   definition step_4.claim_after_end equals claim_after_end
   definition step_4.claim_each_month equals claim_each_month
   definition step_4.lcw_carries_over equals lcw_carries_over
@@ -814,7 +826,7 @@ scope ClaimWindow5:
   definition step_1.earnings equals earnings_1
   definition step_1.aged_25_or_over equals aged_25_or_over
   definition step_1.housing_costs_element equals housing_costs_element
-  definition step_1.has_lcw equals has_lcw
+  definition step_1.lcw equals has_lcw
   definition step_1.claim_after_end equals claim_after_end
   definition step_1.claim_each_month equals claim_each_month
   definition step_1.lcw_carries_over equals lcw_carries_over
@@ -825,7 +837,7 @@ scope ClaimWindow5:
   definition step_2.earnings equals earnings_2
   definition step_2.aged_25_or_over equals aged_25_or_over
   definition step_2.housing_costs_element equals housing_costs_element
-  definition step_2.has_lcw equals has_lcw
+  definition step_2.lcw equals step_1.lcw_next
   definition step_2.claim_after_end equals claim_after_end
   definition step_2.claim_each_month equals claim_each_month
   definition step_2.lcw_carries_over equals lcw_carries_over
@@ -836,7 +848,7 @@ scope ClaimWindow5:
   definition step_3.earnings equals earnings_3
   definition step_3.aged_25_or_over equals aged_25_or_over
   definition step_3.housing_costs_element equals housing_costs_element
-  definition step_3.has_lcw equals has_lcw
+  definition step_3.lcw equals step_2.lcw_next
   definition step_3.claim_after_end equals claim_after_end
   definition step_3.claim_each_month equals claim_each_month
   definition step_3.lcw_carries_over equals lcw_carries_over
@@ -847,7 +859,7 @@ scope ClaimWindow5:
   definition step_4.earnings equals earnings_4
   definition step_4.aged_25_or_over equals aged_25_or_over
   definition step_4.housing_costs_element equals housing_costs_element
-  definition step_4.has_lcw equals has_lcw
+  definition step_4.lcw equals step_3.lcw_next
   definition step_4.claim_after_end equals claim_after_end
   definition step_4.claim_each_month equals claim_each_month
   definition step_4.lcw_carries_over equals lcw_carries_over
@@ -858,7 +870,7 @@ scope ClaimWindow5:
   definition step_5.earnings equals earnings_5
   definition step_5.aged_25_or_over equals aged_25_or_over
   definition step_5.housing_costs_element equals housing_costs_element
-  definition step_5.has_lcw equals has_lcw
+  definition step_5.lcw equals step_4.lcw_next
   definition step_5.claim_after_end equals claim_after_end
   definition step_5.claim_each_month equals claim_each_month
   definition step_5.lcw_carries_over equals lcw_carries_over
@@ -972,7 +984,7 @@ scope ClaimWindow6:
   definition step_1.earnings equals earnings_1
   definition step_1.aged_25_or_over equals aged_25_or_over
   definition step_1.housing_costs_element equals housing_costs_element
-  definition step_1.has_lcw equals has_lcw
+  definition step_1.lcw equals has_lcw
   definition step_1.claim_after_end equals claim_after_end
   definition step_1.claim_each_month equals claim_each_month
   definition step_1.lcw_carries_over equals lcw_carries_over
@@ -983,7 +995,7 @@ scope ClaimWindow6:
   definition step_2.earnings equals earnings_2
   definition step_2.aged_25_or_over equals aged_25_or_over
   definition step_2.housing_costs_element equals housing_costs_element
-  definition step_2.has_lcw equals has_lcw
+  definition step_2.lcw equals step_1.lcw_next
   definition step_2.claim_after_end equals claim_after_end
   definition step_2.claim_each_month equals claim_each_month
   definition step_2.lcw_carries_over equals lcw_carries_over
@@ -994,7 +1006,7 @@ scope ClaimWindow6:
   definition step_3.earnings equals earnings_3
   definition step_3.aged_25_or_over equals aged_25_or_over
   definition step_3.housing_costs_element equals housing_costs_element
-  definition step_3.has_lcw equals has_lcw
+  definition step_3.lcw equals step_2.lcw_next
   definition step_3.claim_after_end equals claim_after_end
   definition step_3.claim_each_month equals claim_each_month
   definition step_3.lcw_carries_over equals lcw_carries_over
@@ -1005,7 +1017,7 @@ scope ClaimWindow6:
   definition step_4.earnings equals earnings_4
   definition step_4.aged_25_or_over equals aged_25_or_over
   definition step_4.housing_costs_element equals housing_costs_element
-  definition step_4.has_lcw equals has_lcw
+  definition step_4.lcw equals step_3.lcw_next
   definition step_4.claim_after_end equals claim_after_end
   definition step_4.claim_each_month equals claim_each_month
   definition step_4.lcw_carries_over equals lcw_carries_over
@@ -1016,7 +1028,7 @@ scope ClaimWindow6:
   definition step_5.earnings equals earnings_5
   definition step_5.aged_25_or_over equals aged_25_or_over
   definition step_5.housing_costs_element equals housing_costs_element
-  definition step_5.has_lcw equals has_lcw
+  definition step_5.lcw equals step_4.lcw_next
   definition step_5.claim_after_end equals claim_after_end
   definition step_5.claim_each_month equals claim_each_month
   definition step_5.lcw_carries_over equals lcw_carries_over
@@ -1027,7 +1039,7 @@ scope ClaimWindow6:
   definition step_6.earnings equals earnings_6
   definition step_6.aged_25_or_over equals aged_25_or_over
   definition step_6.housing_costs_element equals housing_costs_element
-  definition step_6.has_lcw equals has_lcw
+  definition step_6.lcw equals step_5.lcw_next
   definition step_6.claim_after_end equals claim_after_end
   definition step_6.claim_each_month equals claim_each_month
   definition step_6.lcw_carries_over equals lcw_carries_over
