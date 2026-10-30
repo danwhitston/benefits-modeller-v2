@@ -7,10 +7,9 @@ script's commands are executed one by one against a `Solver` and a
 binary from the GitHub release is therefore not used, and the Makefile pins no
 checksum for it.
 
-Z3 uses `Solver` and `parse_smt2_string`, or `Optimize` when the script holds
-Z3-specific commands such as `(maximize ...)`. cvc5 is never sent those. Each
-Z3 call has a fresh `z3.Context`, so work done earlier in the same process
-cannot change Z3's search, and results do not depend on what ran before.
+Z3 uses `Solver` and `parse_smt2_string`. Each Z3 call has a fresh
+`z3.Context`, so work done earlier in the same process cannot change Z3's
+search, and results do not depend on what ran before.
 
 `optimise_and_confirm` is the one routine for an optimum. It does not use
 Z3's `Optimize` engine, whose run time on the project's queries had a long
@@ -20,33 +19,34 @@ random seeds: a median of 0.46 s, 5.4 s at the 90th percentile and once over
 checks: Z3 finds a model, then is asked for a better one until it proves that
 none exists, and cvc5 then confirms independently that nothing better exists.
 
-A timeout gives status "unknown". So does a Z3 optimisation that answers sat
-without proving the objective optimal, because that model is not a result.
-Anything else that goes wrong, such as a script that does not parse, raises
-`SolverError`.
+A timeout gives status "unknown". Anything else that goes wrong, such as a
+script that does not parse, raises `SolverError`.
 
 Models cover the declared constants only, as ints and bools. A declared
 constant of another sort (Real, for example) in a satisfiable script raises
-`SolverError`, because the project's queries have no such constants.
+`SolverError`, because the project's queries have no such constants. The one
+exception is a relaxed probe (`bm.translate.translate(scope, relaxed=True)`),
+which is not the rules: `run(..., reals=True)` and
+`optimise_and_confirm(..., sort="Real")` read Real constants as `Fraction`.
 """
 
+import math
 import re
 import time
 from dataclasses import dataclass
+from fractions import Fraction
 from typing import Literal
 
 import cvc5
 import z3
 
 Status = Literal["sat", "unsat", "unknown"]
-Model = dict[str, int | bool]
+Model = dict[str, int | bool | Fraction]
 
 _SYMBOL = r"\|[^|]*\||[^\s()|]+"
 _DECLARATION = re.compile(
     rf"\(\s*declare-(?:const|fun)\s+({_SYMBOL})\s+(?:\(\s*\)\s+)?([^\s()]+)\s*\)"
 )
-_Z3_ONLY = re.compile(r"\(\s*(?:maximize|minimize|assert-soft)\b")
-_INTERRUPTED = re.compile(r"cancel|timeout|memout|resource", re.IGNORECASE)
 _SET_LOGIC = re.compile(r"\(\s*set-logic\b")
 
 
@@ -68,16 +68,23 @@ class SolverDisagreement(Exception):
         self.z3 = z3_result
         self.cvc5 = cvc5_result
         self.context = context
-        text = f"z3 says {z3_result.status} but cvc5 says {cvc5_result.status}"
-        super().__init__(f"{context}: {text}" if context else text)
+        if z3_result.status == cvc5_result.status:
+            # The statuses agree, so they cannot say what differs: the context does.
+            message = f"z3 and cvc5 disagree: {context}" if context else "z3 and cvc5 disagree"
+        else:
+            text = f"z3 says {z3_result.status} but cvc5 says {cvc5_result.status}"
+            message = f"{context}: {text}" if context else text
+        super().__init__(message)
 
 
 @dataclass(frozen=True)
 class Optimum:
     """The outcome of `optimise_and_confirm`.
 
-    `value` and `model` are Z3's optimum, and are kept when only cvc5 could not
-    confirm it (`status` "unknown", `confirmed` False). They are None when Z3
+    `value` and `model` are Z3's optimum (for a `Real` objective, the integer
+    described in `optimise_and_confirm`: the largest (for a minimum, the
+    smallest) integer the search proves reachable), and are kept when only cvc5
+    could not confirm it (`status` "unknown", `confirmed` False). They are None when Z3
     did not prove an optimum: the script is infeasible, or Z3 answered unknown
     or ran out of time before proving that nothing better exists.
     """
@@ -98,6 +105,9 @@ def optimise_and_confirm(
     direction: Literal["max", "min"],
     timeout_ms: int,
     context: str = "",
+    max_checks: int = 200,
+    sort: Literal["Int", "Real"] = "Int",
+    seed: int | None = None,
 ) -> Optimum:
     """Z3 optimises the SMT-LIB term `objective`; cvc5 confirms nothing is better.
 
@@ -105,7 +115,8 @@ def optimise_and_confirm(
     changed. The objective is declared as `|bm.objective|`, so its value is
     read from the model.
 
-    Z3 searches with plain satisfiability checks, all within `timeout_ms`.
+    Z3 searches with plain satisfiability checks, all within `timeout_ms` and
+    at most `max_checks` of them.
     Its first model gives a value v. Each later check asks for an objective at
     least some target beyond v: the targets gallop away from v, doubling the
     step, until one is unsat, then bisect between the best value found and
@@ -118,25 +129,53 @@ def optimise_and_confirm(
     Raises `SolverDisagreement`, carrying `context`, if cvc5 finds one. If Z3's
     first check is unsat the status is "infeasible". If any Z3 check is
     unknown, or the time runs out before Z3 proves the optimum, the status is
-    "unknown" with no value: an unbounded objective ends this way. If cvc5 is
-    unknown the status is "unknown" and Z3's optimum is kept. Neither unknown
-    is ever read as an optimum.
+    "unknown" with no value: an unbounded objective ends this way, at the
+    latest after `max_checks` checks. If cvc5 is unknown the status is
+    "unknown" and Z3's optimum is kept. Neither unknown is ever read as an
+    optimum.
+
+    With `sort="Real"` the objective is declared `Real` and model values may be
+    `Fraction`. Targets stay integers, and the value is the largest (for a
+    minimum, the smallest) integer the search proves reachable (an infimum of
+    0.3 gives 1: an objective of at most 1 is reachable, at most 0 is not). It
+    is not the optimum itself, which may lie between integers. cvc5 is then
+    asked for an objective at least one beyond the value. This is for relaxed
+    probes only (see `bm.translate`), whose results are not findings about the
+    rules.
+
+    `seed`, when given, is passed to every Z3 and cvc5 check (see `run`), for
+    measuring how solver time varies with the search; the default leaves each
+    solver's own seed alone.
+
+    The timing figures in the module docstring were measured by a milestone 2
+    reviewer, not by the code's author.
     """
     if direction not in ("max", "min"):
         raise ValueError(f"direction must be 'max' or 'min', not {direction!r}")
+    if sort not in ("Int", "Real"):
+        raise ValueError(f"sort must be 'Int' or 'Real', not {sort!r}")
+    reals = sort == "Real"
+    read = {"reals": True} if reals else {}  # the default is the Int and Bool reading
+    if seed is not None:
+        read["seed"] = seed
     name = f"|{OBJECTIVE}|"
-    base = [*lines, f"(declare-const {name} Int)", f"(assert (= {name} {objective}))"]
+    base = [*lines, f"(declare-const {name} {sort})", f"(assert (= {name} {objective}))"]
     # The search works on sign * objective, so that better is always larger.
     sign = 1 if direction == "max" else -1
     at_least = ">=" if direction == "max" else "<="
     deadline = time.monotonic() + timeout_ms / 1000
+    checks = 0
 
     def z3_check(target: int | None) -> SolverResult:
+        nonlocal checks
         remaining_ms = int((deadline - time.monotonic()) * 1000)
-        if remaining_ms < 1:
+        if remaining_ms < 1 or checks >= max_checks:
             return SolverResult("unknown", None, _z3_version())
-        extra = [] if target is None else [f"(assert ({at_least} {name} {_int(sign * target)}))"]
-        return run("z3", "\n".join([*base, *extra, "(check-sat)"]) + "\n", remaining_ms)
+        checks += 1
+        extra = []
+        if target is not None:
+            extra = [f"(assert ({at_least} {name} {_number(sign * target, sort)}))"]
+        return run("z3", "\n".join([*base, *extra, "(check-sat)"]) + "\n", remaining_ms, **read)
 
     def unknown() -> Optimum:
         # cvc5 does not run, so its version is read from the package.
@@ -148,7 +187,9 @@ def optimise_and_confirm(
     if first.status == "unknown":
         return unknown()
     model = first.model
-    best = sign * model[OBJECTIVE]  # the best value found so far, as sign * objective
+    # The best value found so far, as sign * objective. For a Real objective it
+    # is the integer part, which that model reaches.
+    best = math.floor(sign * model[OBJECTIVE])
     above: int | None = None  # the least value proved out of reach, once one is
     step = 1
     while True:
@@ -167,14 +208,24 @@ def optimise_and_confirm(
             proof = found  # Z3's unsat for the last target
         else:
             model = found.model
-            best = sign * model[OBJECTIVE]
+            best = math.floor(sign * model[OBJECTIVE])
     value = sign * best
 
-    better = ">" if direction == "max" else "<"
-    confirm = "\n".join([*base, f"(assert ({better} {name} {_int(value)}))", "(check-sat)"]) + "\n"
-    cvc5_result = run("cvc5", confirm, timeout_ms)
+    if reals:
+        # Nothing at least one beyond the value, since Z3 proved that for the
+        # target just above it.
+        beyond = f"({at_least} {name} {_number(sign * (best + 1), sort)})"
+    else:
+        beyond = f"({'>' if direction == 'max' else '<'} {name} {_int(value)})"
+    confirm = "\n".join([*base, f"(assert {beyond})", "(check-sat)"]) + "\n"
+    cvc5_result = run("cvc5", confirm, timeout_ms, **read)
     if cvc5_result.status == "sat":
         what = f"cvc5 finds an objective {'above' if direction == 'max' else 'below'} {value}"
+        if reals:
+            what = (
+                f"cvc5 finds an objective at least 1 {'above' if direction == 'max' else 'below'}"
+                f" {value}"
+            )
         raise SolverDisagreement(proof, cvc5_result, f"{context}: {what}" if context else what)
     return Optimum(
         "optimal" if cvc5_result.status == "unsat" else "unknown",
@@ -190,16 +241,32 @@ def _int(value: int) -> str:
     return str(value) if value >= 0 else f"(- {-value})"
 
 
+def _number(value: int, sort: str) -> str:
+    """An SMT-LIB numeral of `sort` (Int or Real) for a whole number."""
+    return _int(value) if sort == "Int" else f"(- {-value}.0)" if value < 0 else f"{value}.0"
+
+
 def versions() -> dict[str, str]:
     return {"z3": _z3_version(), "cvc5": _cvc5_version(cvc5.Solver(cvc5.TermManager()))}
 
 
-def run(solver: Literal["z3", "cvc5"], script: str, timeout_ms: int) -> SolverResult:
+def run(
+    solver: Literal["z3", "cvc5"],
+    script: str,
+    timeout_ms: int,
+    reals: bool = False,
+    seed: int | None = None,
+) -> SolverResult:
+    """Run `script`. With `reals`, Real constants in a model are read as `Fraction`.
+
+    With a `seed`, Z3 runs with `smt.random_seed` and cvc5 with its `seed`
+    option set to it. The default leaves both at the solver's own.
+    """
     match solver:
         case "z3":
-            return _run_z3(script, timeout_ms)
+            return _run_z3(script, timeout_ms, reals, seed)
         case "cvc5":
-            return _run_cvc5(script, timeout_ms)
+            return _run_cvc5(script, timeout_ms, reals, seed)
     raise ValueError(f"unknown solver {solver!r}")
 
 
@@ -216,31 +283,25 @@ def _unquote(symbol: str) -> str:
     return symbol[1:-1] if symbol.startswith("|") else symbol
 
 
-def _run_z3(script: str, timeout_ms: int) -> SolverResult:
+def _run_z3(
+    script: str, timeout_ms: int, reals: bool = False, seed: int | None = None
+) -> SolverResult:
     version = _z3_version()
     # A fresh context per call: Z3's shared main context keeps state between
     # calls that changes the search, so results would depend on what ran first.
     ctx = z3.Context()
     try:
-        if _Z3_ONLY.search(script):
-            engine = z3.Optimize(ctx=ctx)
-            engine.set("timeout", timeout_ms)
-            engine.from_string(script)
-        else:
-            engine = z3.Solver(ctx=ctx)
-            engine.set("timeout", timeout_ms)
-            engine.add(z3.parse_smt2_string(script, ctx=ctx))
+        engine = z3.Solver(ctx=ctx)
+        engine.set("timeout", timeout_ms)
+        if seed is not None:
+            engine.set("smt.random_seed", seed)
+        engine.add(z3.parse_smt2_string(script, ctx=ctx))
         outcome = engine.check()
     except z3.Z3Exception as error:
         raise SolverError(f"z3 could not run the script: {error}") from error
     if outcome == z3.unsat:
         return SolverResult("unsat", None, version)
     if outcome != z3.sat:
-        return SolverResult("unknown", None, version)
-    if isinstance(engine, z3.Optimize) and not _proved_optimal(engine):
-        # Z3 can answer sat for an optimisation problem without having proved
-        # the objective optimal (an unbounded objective, a nonlinear one, or a
-        # run cut short). That model is not a result.
         return SolverResult("unknown", None, version)
 
     model = engine.model()
@@ -251,39 +312,24 @@ def _run_z3(script: str, timeout_ms: int) -> SolverResult:
             values[name] = model.eval(z3.Int(name, ctx), model_completion=True).as_long()
         elif sort == "Bool":
             values[name] = z3.is_true(model.eval(z3.Bool(name, ctx), model_completion=True))
+        elif sort == "Real" and reals:
+            real = model.eval(z3.Real(name, ctx), model_completion=True)
+            values[name] = Fraction(real.numerator_as_long(), real.denominator_as_long())
         else:
             raise SolverError(f"z3 model value for {name} has sort {sort}; expected Int or Bool")
     return SolverResult("sat", values, version)
 
 
-def _proved_optimal(engine: z3.Optimize) -> bool:
-    """Z3 closed the gap on every objective, so the model is an optimum.
-
-    `reason_unknown` is not a reliable signal here: Z3 reports "unknown" next
-    to some optima it has proved. The bounds are: the upper and lower bound of
-    each objective are the same number exactly when the optimum is proved.
-    Unbounded, unproved or infinitesimal bounds are never equal numerals.
-    """
-    if _INTERRUPTED.search(engine.reason_unknown()):
-        return False
-    ref = engine.ctx.ref()
-    for i in range(len(engine.objectives())):
-        # OptimizeObjective wraps the bound ASTs as reference-counted ExprRefs,
-        # so no raw Z3_ast pointer is held. Whether objective i is a maximum or
-        # a minimum only matters for `.value()`, which is not used here.
-        objective = z3.OptimizeObjective(engine, i, False)
-        upper, lower = objective.upper(), objective.lower()
-        if not (z3.Z3_is_numeral_ast(ref, upper.as_ast()) and upper.eq(lower)):
-            return False
-    return True
-
-
-def _run_cvc5(script: str, timeout_ms: int) -> SolverResult:
+def _run_cvc5(
+    script: str, timeout_ms: int, reals: bool = False, seed: int | None = None
+) -> SolverResult:
     tm = cvc5.TermManager()
     engine = cvc5.Solver(tm)
     version = _cvc5_version(engine)
     engine.setOption("produce-models", "true")
     engine.setOption("tlimit-per", str(timeout_ms))
+    if seed is not None:
+        engine.setOption("seed", str(seed))
     symbols = cvc5.SymbolManager(tm)
     parser = cvc5.InputParser(engine, symbols)
     if not _SET_LOGIC.search(script):
@@ -313,6 +359,8 @@ def _run_cvc5(script: str, timeout_ms: int) -> SolverResult:
             values[name] = value.getBooleanValue()
         elif sort.isInteger():
             values[name] = int(value.getIntegerValue())
+        elif sort.isReal() and reals:
+            values[name] = Fraction(str(value.getRealValue()))
         else:
             raise SolverError(f"cvc5 model value for {name} has sort {sort}; expected Int or Bool")
     return SolverResult("sat", values, version)

@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 from bm import inputs, ir, solvers, translate, units
-from bm.household import Script, smt_sum
+from bm.household import Script, facts, smt_sum
 
 ROOT = Path(__file__).resolve().parent.parent
 UC_IR = ROOT / "build" / "uc.bm-ir.json"
@@ -130,3 +130,48 @@ def test_unknown_inputs_refused():
         script.instance(fixed={"not_an_input": 1})
     with pytest.raises(ValueError, match="not_an_input"):
         script.instance("p2", equal={"not_an_input": "1"})
+
+
+def test_declare_refuses_a_module_function_name():
+    module, bounds = _loaded()
+    with pytest.raises(ValueError, match="award"):
+        Script(module, bounds).declare("award", "Int")
+
+
+def test_instance_refuses_fixed_and_equal_overlap():
+    module, bounds = _loaded()
+    with pytest.raises(ValueError, match="has_lcw"):
+        Script(module, bounds).instance(fixed={"has_lcw": True}, equal={"has_lcw": "true"})
+
+
+def test_bounds_on_real_inputs_only_in_a_relaxed_module(tmp_path):
+    from test_translate import document, load_doc, output, var
+
+    from bm.inputs import Bound
+
+    # In the exact translation only Int inputs take a bound, so a decimal input
+    # does not. The relaxed translation (a probe) makes money Real and allows
+    # a bound on a Real input.
+    doc = document(
+        [("r", "decimal"), ("m", "money")],
+        [("x", "money", output(var("m")))],
+        ["x"],
+    )
+    scope = load_doc(tmp_path, doc)
+    money = {"m": Bound("money", 0, 100)}
+    Script(translate.translate(scope), money)  # Int money: fine
+    Script(translate.translate(scope, relaxed=True), money)
+    with pytest.raises(ValueError, match="r is Real, which takes no bound"):
+        Script(translate.translate(scope), {"r": Bound("decimal", 0, 1)})
+
+
+def test_facts_are_fixed_or_free_within_their_bounds():
+    module, bounds = _loaded()
+    specs = inputs.load(UC_BOUNDS, ir.load(UC_IR))
+    script = Script(module, bounds)
+    shared = facts(script, specs, {"has_lcw": True}, {"earned_income", "assessment_period_start"})
+    assert set(shared) == set(specs) - {"earned_income", "assessment_period_start"}
+    assert shared["has_lcw"] == "|fact.has_lcw|"
+    assert "(assert (= |fact.has_lcw| true))" in script.lines
+    housing = specs["housing_costs_element"].bound
+    assert f"(assert (<= {housing.min} |fact.housing_costs_element| {housing.max}))" in script.lines

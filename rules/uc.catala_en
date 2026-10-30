@@ -4,8 +4,11 @@
 
 This file holds a thin slice of Universal Credit for a single claimant: the
 standard allowance, the housing costs element, the work allowance and the
-earnings deduction, and the award that follows from them. It models only what
-is needed to exercise the pipeline and the queries built on it.
+earnings deduction, and the award that follows from them. A second part,
+"Universal Credit: nil assessment periods", follows the award across a short
+window of periods in which earnings can take a period to a nil award. The file
+models only what is needed to exercise the pipeline and the queries built on
+it.
 
 Simplifications, stated so that nobody reads more into the rules than is there:
 
@@ -204,4 +207,878 @@ scope UniversalCredit:
     if maximum_amount - earnings_deduction > $0.00
     then maximum_amount - earnings_deduction
     else $0.00
+```
+
+# Universal Credit: nil assessment periods
+
+The rules above work out one assessment period. The rules below follow an
+award across a short window of consecutive monthly assessment periods, for
+the case where earnings take a period to a nil award: the award ends, later
+months can be treated as claims, and surplus earnings from the nil period are
+counted against those claims.
+
+`WindowStep` works out one period, given the state that the previous period
+left. `ClaimWindow` chains three steps. `ClaimWindow4`, `ClaimWindow5` and
+`ClaimWindow6` chain four, five and six, for measuring solver time only.
+
+Every reading of the law in this part is the project's own, made from the
+cited sources, and is for specialist review. The research behind it, with the
+confidence of each reading, is in `docs/nil-months.md`, and the design is in
+`docs/superpowers/specs/2026-10-29-nil-assessment-periods-design.md`. Sources
+were checked on 29 October 2026.
+
+Three points are left to DWP's discretion, or rest on DWP's guidance rather
+than on the regulations. Each is an input, so that every case can be asked
+about:
+
+* `claim_after_end`: whether claims are treated as made, or a fresh claim is
+  made, in the months after the award ends.
+* `claim_each_month`: whether a month in which that claim fails still counts
+  as a claim.
+* `lcw_carries_over`: whether the limited capability for work finding carries
+  over to a new award.
+
+Simplifications, in addition to those of the rules above:
+
+* The state carried from one period to the next is whether the award is live,
+  the surplus carried in, how many months have passed since the award ended,
+  and whether the limited capability for work finding is in force. Nothing
+  else carries over: each period's award is worked out afresh.
+* A fresh claim within 6 months of the end is treated in the same way as a
+  claim treated as made under regulation 32A.
+* Regulation 32A's extension for a claimant on a funded employment scheme is
+  not modelled.
+* Regulation 54A(5), under which no surplus is taken into account for a
+  claimant who has "recently been a victim of domestic violence", is not
+  represented.
+* Each surplus is measured against the thresholds of the period whose earnings
+  are measured: the nil period for the original surplus, and the period of the
+  failed claim for an adjusted surplus. Regulation 54A does not say which
+  period's maximum amount and work allowance apply. The other reading, the
+  period of the claim being decided, gives a different figure only when the
+  maximum amount or the work allowance changes within the window, which in
+  this model happens only when the limited capability for work finding does
+  not carry over. This is the project's reading, for specialist review.
+
+## Step scope declaration
+
+`live` means that the award continues into this period. `months_since_end` is
+0 in a live award, and otherwise the number of months since the nil period
+that ended it: 1 for the month after the nil period, and so on. `surplus` is
+the surplus earnings carried in. `lcw` is whether the limited capability for
+work finding is in force: the claimant's finding in the first period, and
+afterwards the finding that the previous period used.
+
+```catala-metadata
+declaration scope WindowStep:
+  input live content boolean
+  input surplus content money
+  input months_since_end content integer
+  input start content date
+  input earnings content money
+  input aged_25_or_over content boolean
+  input housing_costs_element content money
+  input lcw content boolean
+  input claim_after_end content boolean
+  input claim_each_month content boolean
+  input lcw_carries_over content boolean
+  uc scope UniversalCredit
+  internal claim_made content boolean
+  internal lcw_used content boolean
+  output earnings_used content money
+  output award content money
+  output entitled content boolean
+  output nil_uc_threshold content money
+  output relevant_threshold content money
+  output live_next content boolean
+  output surplus_next content money
+  output months_since_end_next content integer
+  output lcw_next content boolean
+```
+
+## Claims after the award ends
+
+Under regulation 32A of the Claims and Payments Regulations 2013, where
+entitlement to an award ceases because the income condition is not met, the
+Secretary of State "may", "subject to any conditions the Secretary of State
+considers appropriate", treat the claimant as making a claim on the first day
+of each later month that would have been an assessment period, "up to a
+maximum of 5"
+([regulation 32A](https://www.legislation.gov.uk/uksi/2013/380/regulation/32A),
+checked 29 October 2026). The old assessment period dates are kept.
+
+This file reads the 5 months as counted from the nil period, so that a claim
+that also fails does not start a fresh run of 5. That follows ADM A2050,
+Examples 2 and 3 (DWP's
+[*Advice for Decision Making*](https://www.gov.uk/government/publications/advice-for-decision-making-staff-guide),
+chapter A2, checked 29 October 2026). The reading is the project's, for
+specialist review.
+
+```catala
+scope WindowStep:
+  definition claim_made equals
+    not live and claim_after_end
+    and months_since_end >= 1 and months_since_end <= 5
+```
+
+## The limited capability for work finding
+
+A claimant has limited capability for work if "it has been determined" that
+they have it
+([regulation 39](https://www.legislation.gov.uk/uksi/2013/376/regulation/39),
+checked 29 October 2026). The regulation sets no time limit tied to the award.
+That the finding carries over to a new award within 6 months rests on DWP's
+"Re-claims" staff guide, which says a determination "remains valid" if the
+condition has not changed and the review date has not passed (V11.0,
+[DEP2024-0442](https://data.parliament.uk/DepositedPapers/Files/DEP2024-0442/138._Reclaims_V11.0.pdf),
+checked 29 October 2026). After the end, the finding is used only when
+`lcw_carries_over` holds.
+
+The finding used is carried to the next period. So a finding that is lost
+when a new award begins after the end stays lost for the rest of that award,
+within the window, rather than coming back once the new award is live. This
+is the project's reading, for specialist review.
+
+```catala
+scope WindowStep:
+  definition lcw_used equals
+    if live then lcw else lcw and lcw_carries_over
+
+  definition lcw_next equals lcw_used
+```
+
+## Earnings used
+
+Where regulation 54A applies to a claim, surplus earnings "are to be treated
+as earned income" both for deciding whether there is entitlement and for
+calculating the award
+([regulation 54A(2)](https://www.legislation.gov.uk/uksi/2013/376/regulation/54A),
+checked 29 October 2026). This file adds the surplus carried in to the
+earnings of the period of each claim made after the end. In a live award, and
+in a month with no claim, the earnings used are the period's own.
+
+```catala
+scope WindowStep:
+  definition earnings_used equals
+    if claim_made then earnings + surplus else earnings
+```
+
+## The period's figures
+
+The period's award, maximum amount and work allowance come from the rules
+above, with the earnings used and the limited capability for work finding
+used.
+
+```catala
+scope WindowStep:
+  definition uc.assessment_period_start equals start
+  definition uc.earned_income equals earnings_used
+  definition uc.aged_25_or_over equals aged_25_or_over
+  definition uc.has_lcw equals lcw_used
+  definition uc.housing_costs_element equals housing_costs_element
+```
+
+## The award and entitlement
+
+Entitlement needs an amount payable of at least a prescribed minimum, and for
+Universal Credit "the minimum is one penny"
+([regulation 17](https://www.legislation.gov.uk/uksi/2013/376/regulation/17);
+Welfare Reform Act 2012,
+[section 5](https://www.legislation.gov.uk/ukpga/2012/5/section/5); both
+checked 29 October 2026). So a period whose award is below 1p ends the award.
+The decision that ends it takes effect "from the first day of the assessment
+period in which that change occurred"
+([Decisions and Appeals Regulations 2013, Schedule 1](https://www.legislation.gov.uk/uksi/2013/381/schedule/1),
+paragraph 20, checked 29 October 2026), so nothing is paid for the nil period.
+That the end is a supersession under paragraph 20 is the project's reading,
+which ADM A2050, Example 3, supports.
+
+Entitlement is tested on the rounded award itself, not on the nil UC threshold
+below, because the threshold is where the unrounded award reaches zero, about
+a penny above the point at which the rounded award falls below 1p.
+
+The award is paid in a live award or in a month in which a claim is made, and
+is nil otherwise.
+
+```catala
+scope WindowStep:
+  definition award equals
+    if live or claim_made then uc.award else $0.00
+
+  definition entitled equals award >= $0.01
+```
+
+## The nil UC threshold
+
+Regulation 54A(6) defines "the nil UC threshold" as the amount of total earned
+income "above which there would be no entitlement", by a formula in M, "the
+maximum amount of an award of universal credit", U, "unearned income", and
+WA, "the work allowance"
+([regulation 54A(6)](https://www.legislation.gov.uk/uksi/2013/376/regulation/54A),
+checked 29 October 2026). The formula is (M - U) / 55 x 100 + WA, with the work
+allowance added unscaled, as ADM H3308 shows. Unearned income is not modelled,
+so U is 0.
+
+The formula does not say how to round. This file divides M by 55%, which is
+M x 100/55 exactly, and rounds the result once to the penny under regulation 6,
+as the ADM's worked figure is rounded (chapter H3, Appendix 2, Example 1). It
+then adds the work allowance.
+
+```catala
+scope WindowStep:
+  definition nil_uc_threshold equals
+    uc.maximum_amount / 0.55 + uc.work_allowance
+```
+
+## The relevant threshold
+
+Regulation 54A(6) makes "the relevant threshold" "the nil UC threshold plus
+£300"
+([regulation 54A(6)](https://www.legislation.gov.uk/uksi/2013/376/regulation/54A),
+checked 29 October 2026). Regulation 5 of S.I. 2015/345 substitutes £2,500 for
+a claim "in respect of a period that begins before the end of the temporary de
+minimis period"
+([regulation 5](https://www.legislation.gov.uk/uksi/2015/345/regulation/5),
+checked 29 October 2026). The Secretary of State's
+[determination](https://www.gov.uk/government/publications/secretary-of-state-determination-under-regulation-5-of-the-universal-credit-surpluses-and-self-employed-losses-digital-service-amendment-regulatio--2/secretary-of-state-determination-under-regulation-5-of-the-universal-credit-surpluses-and-self-employed-losses-digital-service-amendment-regulatio),
+made 20 January 2026, says that period "will end on 31st March 2027" (checked
+29 October 2026).
+
+This file applies £2,500 to a period beginning on or before 31 March 2027.
+That a period beginning on 31 March 2027 itself is covered is the project's
+inference, recorded in `docs/model-gaps.md`. The two definitions are parallel
+cases, so their conditions exclude each other.
+
+```catala
+scope WindowStep:
+  definition relevant_threshold
+    under condition start <= |2027-03-31|
+    consequence equals nil_uc_threshold + $2,500.00
+
+  definition relevant_threshold
+    under condition start > |2027-03-31|
+    consequence equals nil_uc_threshold + $300.00
+```
+
+## Surplus earnings carried on
+
+Regulation 54A applies to a claim where the claimant had an "old award" that
+terminated within the 6 months ending on the first day the claim is for, has
+not been entitled since, and had total earned income "in the month that would
+have been the final assessment period for the old award, had it not
+terminated" above the relevant threshold
+([regulation 54A(1)](https://www.legislation.gov.uk/uksi/2013/376/regulation/54A),
+checked 29 October 2026). Under paragraph (3), the surplus for the first claim
+is that excess, "the original surplus". For each later claim, up to the fifth,
+it is the amount, if any, by which the previous surplus plus the earnings in
+the first assessment period of the previous claim "exceeded the relevant
+threshold".
+
+The surplus carried to the next period is:
+
+* nil if this period is entitled, because a surplus is used up once an award
+  is made and nothing carries into later periods of a new award (ADM H3,
+  Appendix 2, Example 1);
+* the original surplus, the excess of the earnings over the relevant
+  threshold, if this period ended a live award;
+* after the end, where a claim was made and failed, the excess of the earnings
+  used over the relevant threshold if `claim_each_month` holds, and the surplus
+  carried in, unchanged, if it does not (ADM A2050, Examples 3 and 4, differ on
+  whether a failed month is a claim);
+* after the end, with no claim, the surplus carried in, unchanged, because
+  paragraph (3) counts claims, not months.
+
+No surplus is defined for a sixth claim. The 5-month limit on claims above
+means that none is made.
+
+```catala
+scope WindowStep:
+  definition surplus_next equals
+    if entitled then $0.00
+    else if live then
+      (if earnings > relevant_threshold
+       then earnings - relevant_threshold
+       else $0.00)
+    else if claim_made and claim_each_month then
+      (if earnings_used > relevant_threshold
+       then earnings_used - relevant_threshold
+       else $0.00)
+    else surplus
+```
+
+## The state carried to the next period
+
+The award continues into the next period if this period is entitled. A new
+award after the end restarts the state, so a later nil period ends the award
+again and starts a fresh run of claims and a fresh surplus.
+
+```catala
+scope WindowStep:
+  definition live_next equals entitled
+
+  definition months_since_end_next equals
+    if entitled then 0
+    else if live then 1
+    else months_since_end + 1
+```
+
+## The window of three periods
+
+`ClaimWindow` chains three steps. The window starts in a live award, with no
+surplus carried in and with the claimant's limited capability for work
+finding (`has_lcw`) in force. Each later step takes the state that the
+previous step left, including the finding in force. The other household facts
+and the three judgement points are the same in every period. The start dates are inputs, one calendar month apart, worked out
+by the caller.
+
+`surplus_after_<k>` is the surplus that step k carries to the next period, and
+`total_award` is the sum of the awards.
+
+```catala-metadata
+declaration scope ClaimWindow:
+  input start_1 content date
+  input start_2 content date
+  input start_3 content date
+  input earnings_1 content money
+  input earnings_2 content money
+  input earnings_3 content money
+  input aged_25_or_over content boolean
+  input housing_costs_element content money
+  input has_lcw content boolean
+  input claim_after_end content boolean
+  input claim_each_month content boolean
+  input lcw_carries_over content boolean
+  step_1 scope WindowStep
+  step_2 scope WindowStep
+  step_3 scope WindowStep
+  output award_1 content money
+  output earnings_used_1 content money
+  output entitled_1 content boolean
+  output surplus_after_1 content money
+  output nil_uc_threshold_1 content money
+  output relevant_threshold_1 content money
+  output award_2 content money
+  output earnings_used_2 content money
+  output entitled_2 content boolean
+  output surplus_after_2 content money
+  output nil_uc_threshold_2 content money
+  output relevant_threshold_2 content money
+  output award_3 content money
+  output earnings_used_3 content money
+  output entitled_3 content boolean
+  output surplus_after_3 content money
+  output nil_uc_threshold_3 content money
+  output relevant_threshold_3 content money
+  output total_award content money
+```
+
+```catala
+scope ClaimWindow:
+  definition step_1.live equals true
+  definition step_1.surplus equals $0.00
+  definition step_1.months_since_end equals 0
+  definition step_1.start equals start_1
+  definition step_1.earnings equals earnings_1
+  definition step_1.aged_25_or_over equals aged_25_or_over
+  definition step_1.housing_costs_element equals housing_costs_element
+  definition step_1.lcw equals has_lcw
+  definition step_1.claim_after_end equals claim_after_end
+  definition step_1.claim_each_month equals claim_each_month
+  definition step_1.lcw_carries_over equals lcw_carries_over
+  definition step_2.live equals step_1.live_next
+  definition step_2.surplus equals step_1.surplus_next
+  definition step_2.months_since_end equals step_1.months_since_end_next
+  definition step_2.start equals start_2
+  definition step_2.earnings equals earnings_2
+  definition step_2.aged_25_or_over equals aged_25_or_over
+  definition step_2.housing_costs_element equals housing_costs_element
+  definition step_2.lcw equals step_1.lcw_next
+  definition step_2.claim_after_end equals claim_after_end
+  definition step_2.claim_each_month equals claim_each_month
+  definition step_2.lcw_carries_over equals lcw_carries_over
+  definition step_3.live equals step_2.live_next
+  definition step_3.surplus equals step_2.surplus_next
+  definition step_3.months_since_end equals step_2.months_since_end_next
+  definition step_3.start equals start_3
+  definition step_3.earnings equals earnings_3
+  definition step_3.aged_25_or_over equals aged_25_or_over
+  definition step_3.housing_costs_element equals housing_costs_element
+  definition step_3.lcw equals step_2.lcw_next
+  definition step_3.claim_after_end equals claim_after_end
+  definition step_3.claim_each_month equals claim_each_month
+  definition step_3.lcw_carries_over equals lcw_carries_over
+  definition award_1 equals step_1.award
+  definition earnings_used_1 equals step_1.earnings_used
+  definition entitled_1 equals step_1.entitled
+  definition surplus_after_1 equals step_1.surplus_next
+  definition nil_uc_threshold_1 equals step_1.nil_uc_threshold
+  definition relevant_threshold_1 equals step_1.relevant_threshold
+  definition award_2 equals step_2.award
+  definition earnings_used_2 equals step_2.earnings_used
+  definition entitled_2 equals step_2.entitled
+  definition surplus_after_2 equals step_2.surplus_next
+  definition nil_uc_threshold_2 equals step_2.nil_uc_threshold
+  definition relevant_threshold_2 equals step_2.relevant_threshold
+  definition award_3 equals step_3.award
+  definition earnings_used_3 equals step_3.earnings_used
+  definition entitled_3 equals step_3.entitled
+  definition surplus_after_3 equals step_3.surplus_next
+  definition nil_uc_threshold_3 equals step_3.nil_uc_threshold
+  definition relevant_threshold_3 equals step_3.relevant_threshold
+  definition total_award equals
+    award_1 + award_2 + award_3
+```
+
+## Longer windows, for measuring solver time
+
+`ClaimWindow4`, `ClaimWindow5` and `ClaimWindow6` follow the same pattern as
+`ClaimWindow` with four, five and six steps. They use the same `WindowStep`
+and add no rules. They exist to measure how solver time grows with the length
+of the window, and no finding uses them.
+
+### Four periods
+
+```catala-metadata
+declaration scope ClaimWindow4:
+  input start_1 content date
+  input start_2 content date
+  input start_3 content date
+  input start_4 content date
+  input earnings_1 content money
+  input earnings_2 content money
+  input earnings_3 content money
+  input earnings_4 content money
+  input aged_25_or_over content boolean
+  input housing_costs_element content money
+  input has_lcw content boolean
+  input claim_after_end content boolean
+  input claim_each_month content boolean
+  input lcw_carries_over content boolean
+  step_1 scope WindowStep
+  step_2 scope WindowStep
+  step_3 scope WindowStep
+  step_4 scope WindowStep
+  output award_1 content money
+  output earnings_used_1 content money
+  output entitled_1 content boolean
+  output surplus_after_1 content money
+  output nil_uc_threshold_1 content money
+  output relevant_threshold_1 content money
+  output award_2 content money
+  output earnings_used_2 content money
+  output entitled_2 content boolean
+  output surplus_after_2 content money
+  output nil_uc_threshold_2 content money
+  output relevant_threshold_2 content money
+  output award_3 content money
+  output earnings_used_3 content money
+  output entitled_3 content boolean
+  output surplus_after_3 content money
+  output nil_uc_threshold_3 content money
+  output relevant_threshold_3 content money
+  output award_4 content money
+  output earnings_used_4 content money
+  output entitled_4 content boolean
+  output surplus_after_4 content money
+  output nil_uc_threshold_4 content money
+  output relevant_threshold_4 content money
+  output total_award content money
+```
+
+```catala
+scope ClaimWindow4:
+  definition step_1.live equals true
+  definition step_1.surplus equals $0.00
+  definition step_1.months_since_end equals 0
+  definition step_1.start equals start_1
+  definition step_1.earnings equals earnings_1
+  definition step_1.aged_25_or_over equals aged_25_or_over
+  definition step_1.housing_costs_element equals housing_costs_element
+  definition step_1.lcw equals has_lcw
+  definition step_1.claim_after_end equals claim_after_end
+  definition step_1.claim_each_month equals claim_each_month
+  definition step_1.lcw_carries_over equals lcw_carries_over
+  definition step_2.live equals step_1.live_next
+  definition step_2.surplus equals step_1.surplus_next
+  definition step_2.months_since_end equals step_1.months_since_end_next
+  definition step_2.start equals start_2
+  definition step_2.earnings equals earnings_2
+  definition step_2.aged_25_or_over equals aged_25_or_over
+  definition step_2.housing_costs_element equals housing_costs_element
+  definition step_2.lcw equals step_1.lcw_next
+  definition step_2.claim_after_end equals claim_after_end
+  definition step_2.claim_each_month equals claim_each_month
+  definition step_2.lcw_carries_over equals lcw_carries_over
+  definition step_3.live equals step_2.live_next
+  definition step_3.surplus equals step_2.surplus_next
+  definition step_3.months_since_end equals step_2.months_since_end_next
+  definition step_3.start equals start_3
+  definition step_3.earnings equals earnings_3
+  definition step_3.aged_25_or_over equals aged_25_or_over
+  definition step_3.housing_costs_element equals housing_costs_element
+  definition step_3.lcw equals step_2.lcw_next
+  definition step_3.claim_after_end equals claim_after_end
+  definition step_3.claim_each_month equals claim_each_month
+  definition step_3.lcw_carries_over equals lcw_carries_over
+  definition step_4.live equals step_3.live_next
+  definition step_4.surplus equals step_3.surplus_next
+  definition step_4.months_since_end equals step_3.months_since_end_next
+  definition step_4.start equals start_4
+  definition step_4.earnings equals earnings_4
+  definition step_4.aged_25_or_over equals aged_25_or_over
+  definition step_4.housing_costs_element equals housing_costs_element
+  definition step_4.lcw equals step_3.lcw_next
+  definition step_4.claim_after_end equals claim_after_end
+  definition step_4.claim_each_month equals claim_each_month
+  definition step_4.lcw_carries_over equals lcw_carries_over
+  definition award_1 equals step_1.award
+  definition earnings_used_1 equals step_1.earnings_used
+  definition entitled_1 equals step_1.entitled
+  definition surplus_after_1 equals step_1.surplus_next
+  definition nil_uc_threshold_1 equals step_1.nil_uc_threshold
+  definition relevant_threshold_1 equals step_1.relevant_threshold
+  definition award_2 equals step_2.award
+  definition earnings_used_2 equals step_2.earnings_used
+  definition entitled_2 equals step_2.entitled
+  definition surplus_after_2 equals step_2.surplus_next
+  definition nil_uc_threshold_2 equals step_2.nil_uc_threshold
+  definition relevant_threshold_2 equals step_2.relevant_threshold
+  definition award_3 equals step_3.award
+  definition earnings_used_3 equals step_3.earnings_used
+  definition entitled_3 equals step_3.entitled
+  definition surplus_after_3 equals step_3.surplus_next
+  definition nil_uc_threshold_3 equals step_3.nil_uc_threshold
+  definition relevant_threshold_3 equals step_3.relevant_threshold
+  definition award_4 equals step_4.award
+  definition earnings_used_4 equals step_4.earnings_used
+  definition entitled_4 equals step_4.entitled
+  definition surplus_after_4 equals step_4.surplus_next
+  definition nil_uc_threshold_4 equals step_4.nil_uc_threshold
+  definition relevant_threshold_4 equals step_4.relevant_threshold
+  definition total_award equals
+    award_1 + award_2 + award_3 + award_4
+```
+
+### Five periods
+
+```catala-metadata
+declaration scope ClaimWindow5:
+  input start_1 content date
+  input start_2 content date
+  input start_3 content date
+  input start_4 content date
+  input start_5 content date
+  input earnings_1 content money
+  input earnings_2 content money
+  input earnings_3 content money
+  input earnings_4 content money
+  input earnings_5 content money
+  input aged_25_or_over content boolean
+  input housing_costs_element content money
+  input has_lcw content boolean
+  input claim_after_end content boolean
+  input claim_each_month content boolean
+  input lcw_carries_over content boolean
+  step_1 scope WindowStep
+  step_2 scope WindowStep
+  step_3 scope WindowStep
+  step_4 scope WindowStep
+  step_5 scope WindowStep
+  output award_1 content money
+  output earnings_used_1 content money
+  output entitled_1 content boolean
+  output surplus_after_1 content money
+  output nil_uc_threshold_1 content money
+  output relevant_threshold_1 content money
+  output award_2 content money
+  output earnings_used_2 content money
+  output entitled_2 content boolean
+  output surplus_after_2 content money
+  output nil_uc_threshold_2 content money
+  output relevant_threshold_2 content money
+  output award_3 content money
+  output earnings_used_3 content money
+  output entitled_3 content boolean
+  output surplus_after_3 content money
+  output nil_uc_threshold_3 content money
+  output relevant_threshold_3 content money
+  output award_4 content money
+  output earnings_used_4 content money
+  output entitled_4 content boolean
+  output surplus_after_4 content money
+  output nil_uc_threshold_4 content money
+  output relevant_threshold_4 content money
+  output award_5 content money
+  output earnings_used_5 content money
+  output entitled_5 content boolean
+  output surplus_after_5 content money
+  output nil_uc_threshold_5 content money
+  output relevant_threshold_5 content money
+  output total_award content money
+```
+
+```catala
+scope ClaimWindow5:
+  definition step_1.live equals true
+  definition step_1.surplus equals $0.00
+  definition step_1.months_since_end equals 0
+  definition step_1.start equals start_1
+  definition step_1.earnings equals earnings_1
+  definition step_1.aged_25_or_over equals aged_25_or_over
+  definition step_1.housing_costs_element equals housing_costs_element
+  definition step_1.lcw equals has_lcw
+  definition step_1.claim_after_end equals claim_after_end
+  definition step_1.claim_each_month equals claim_each_month
+  definition step_1.lcw_carries_over equals lcw_carries_over
+  definition step_2.live equals step_1.live_next
+  definition step_2.surplus equals step_1.surplus_next
+  definition step_2.months_since_end equals step_1.months_since_end_next
+  definition step_2.start equals start_2
+  definition step_2.earnings equals earnings_2
+  definition step_2.aged_25_or_over equals aged_25_or_over
+  definition step_2.housing_costs_element equals housing_costs_element
+  definition step_2.lcw equals step_1.lcw_next
+  definition step_2.claim_after_end equals claim_after_end
+  definition step_2.claim_each_month equals claim_each_month
+  definition step_2.lcw_carries_over equals lcw_carries_over
+  definition step_3.live equals step_2.live_next
+  definition step_3.surplus equals step_2.surplus_next
+  definition step_3.months_since_end equals step_2.months_since_end_next
+  definition step_3.start equals start_3
+  definition step_3.earnings equals earnings_3
+  definition step_3.aged_25_or_over equals aged_25_or_over
+  definition step_3.housing_costs_element equals housing_costs_element
+  definition step_3.lcw equals step_2.lcw_next
+  definition step_3.claim_after_end equals claim_after_end
+  definition step_3.claim_each_month equals claim_each_month
+  definition step_3.lcw_carries_over equals lcw_carries_over
+  definition step_4.live equals step_3.live_next
+  definition step_4.surplus equals step_3.surplus_next
+  definition step_4.months_since_end equals step_3.months_since_end_next
+  definition step_4.start equals start_4
+  definition step_4.earnings equals earnings_4
+  definition step_4.aged_25_or_over equals aged_25_or_over
+  definition step_4.housing_costs_element equals housing_costs_element
+  definition step_4.lcw equals step_3.lcw_next
+  definition step_4.claim_after_end equals claim_after_end
+  definition step_4.claim_each_month equals claim_each_month
+  definition step_4.lcw_carries_over equals lcw_carries_over
+  definition step_5.live equals step_4.live_next
+  definition step_5.surplus equals step_4.surplus_next
+  definition step_5.months_since_end equals step_4.months_since_end_next
+  definition step_5.start equals start_5
+  definition step_5.earnings equals earnings_5
+  definition step_5.aged_25_or_over equals aged_25_or_over
+  definition step_5.housing_costs_element equals housing_costs_element
+  definition step_5.lcw equals step_4.lcw_next
+  definition step_5.claim_after_end equals claim_after_end
+  definition step_5.claim_each_month equals claim_each_month
+  definition step_5.lcw_carries_over equals lcw_carries_over
+  definition award_1 equals step_1.award
+  definition earnings_used_1 equals step_1.earnings_used
+  definition entitled_1 equals step_1.entitled
+  definition surplus_after_1 equals step_1.surplus_next
+  definition nil_uc_threshold_1 equals step_1.nil_uc_threshold
+  definition relevant_threshold_1 equals step_1.relevant_threshold
+  definition award_2 equals step_2.award
+  definition earnings_used_2 equals step_2.earnings_used
+  definition entitled_2 equals step_2.entitled
+  definition surplus_after_2 equals step_2.surplus_next
+  definition nil_uc_threshold_2 equals step_2.nil_uc_threshold
+  definition relevant_threshold_2 equals step_2.relevant_threshold
+  definition award_3 equals step_3.award
+  definition earnings_used_3 equals step_3.earnings_used
+  definition entitled_3 equals step_3.entitled
+  definition surplus_after_3 equals step_3.surplus_next
+  definition nil_uc_threshold_3 equals step_3.nil_uc_threshold
+  definition relevant_threshold_3 equals step_3.relevant_threshold
+  definition award_4 equals step_4.award
+  definition earnings_used_4 equals step_4.earnings_used
+  definition entitled_4 equals step_4.entitled
+  definition surplus_after_4 equals step_4.surplus_next
+  definition nil_uc_threshold_4 equals step_4.nil_uc_threshold
+  definition relevant_threshold_4 equals step_4.relevant_threshold
+  definition award_5 equals step_5.award
+  definition earnings_used_5 equals step_5.earnings_used
+  definition entitled_5 equals step_5.entitled
+  definition surplus_after_5 equals step_5.surplus_next
+  definition nil_uc_threshold_5 equals step_5.nil_uc_threshold
+  definition relevant_threshold_5 equals step_5.relevant_threshold
+  definition total_award equals
+    award_1 + award_2 + award_3 + award_4 + award_5
+```
+
+### Six periods
+
+```catala-metadata
+declaration scope ClaimWindow6:
+  input start_1 content date
+  input start_2 content date
+  input start_3 content date
+  input start_4 content date
+  input start_5 content date
+  input start_6 content date
+  input earnings_1 content money
+  input earnings_2 content money
+  input earnings_3 content money
+  input earnings_4 content money
+  input earnings_5 content money
+  input earnings_6 content money
+  input aged_25_or_over content boolean
+  input housing_costs_element content money
+  input has_lcw content boolean
+  input claim_after_end content boolean
+  input claim_each_month content boolean
+  input lcw_carries_over content boolean
+  step_1 scope WindowStep
+  step_2 scope WindowStep
+  step_3 scope WindowStep
+  step_4 scope WindowStep
+  step_5 scope WindowStep
+  step_6 scope WindowStep
+  output award_1 content money
+  output earnings_used_1 content money
+  output entitled_1 content boolean
+  output surplus_after_1 content money
+  output nil_uc_threshold_1 content money
+  output relevant_threshold_1 content money
+  output award_2 content money
+  output earnings_used_2 content money
+  output entitled_2 content boolean
+  output surplus_after_2 content money
+  output nil_uc_threshold_2 content money
+  output relevant_threshold_2 content money
+  output award_3 content money
+  output earnings_used_3 content money
+  output entitled_3 content boolean
+  output surplus_after_3 content money
+  output nil_uc_threshold_3 content money
+  output relevant_threshold_3 content money
+  output award_4 content money
+  output earnings_used_4 content money
+  output entitled_4 content boolean
+  output surplus_after_4 content money
+  output nil_uc_threshold_4 content money
+  output relevant_threshold_4 content money
+  output award_5 content money
+  output earnings_used_5 content money
+  output entitled_5 content boolean
+  output surplus_after_5 content money
+  output nil_uc_threshold_5 content money
+  output relevant_threshold_5 content money
+  output award_6 content money
+  output earnings_used_6 content money
+  output entitled_6 content boolean
+  output surplus_after_6 content money
+  output nil_uc_threshold_6 content money
+  output relevant_threshold_6 content money
+  output total_award content money
+```
+
+```catala
+scope ClaimWindow6:
+  definition step_1.live equals true
+  definition step_1.surplus equals $0.00
+  definition step_1.months_since_end equals 0
+  definition step_1.start equals start_1
+  definition step_1.earnings equals earnings_1
+  definition step_1.aged_25_or_over equals aged_25_or_over
+  definition step_1.housing_costs_element equals housing_costs_element
+  definition step_1.lcw equals has_lcw
+  definition step_1.claim_after_end equals claim_after_end
+  definition step_1.claim_each_month equals claim_each_month
+  definition step_1.lcw_carries_over equals lcw_carries_over
+  definition step_2.live equals step_1.live_next
+  definition step_2.surplus equals step_1.surplus_next
+  definition step_2.months_since_end equals step_1.months_since_end_next
+  definition step_2.start equals start_2
+  definition step_2.earnings equals earnings_2
+  definition step_2.aged_25_or_over equals aged_25_or_over
+  definition step_2.housing_costs_element equals housing_costs_element
+  definition step_2.lcw equals step_1.lcw_next
+  definition step_2.claim_after_end equals claim_after_end
+  definition step_2.claim_each_month equals claim_each_month
+  definition step_2.lcw_carries_over equals lcw_carries_over
+  definition step_3.live equals step_2.live_next
+  definition step_3.surplus equals step_2.surplus_next
+  definition step_3.months_since_end equals step_2.months_since_end_next
+  definition step_3.start equals start_3
+  definition step_3.earnings equals earnings_3
+  definition step_3.aged_25_or_over equals aged_25_or_over
+  definition step_3.housing_costs_element equals housing_costs_element
+  definition step_3.lcw equals step_2.lcw_next
+  definition step_3.claim_after_end equals claim_after_end
+  definition step_3.claim_each_month equals claim_each_month
+  definition step_3.lcw_carries_over equals lcw_carries_over
+  definition step_4.live equals step_3.live_next
+  definition step_4.surplus equals step_3.surplus_next
+  definition step_4.months_since_end equals step_3.months_since_end_next
+  definition step_4.start equals start_4
+  definition step_4.earnings equals earnings_4
+  definition step_4.aged_25_or_over equals aged_25_or_over
+  definition step_4.housing_costs_element equals housing_costs_element
+  definition step_4.lcw equals step_3.lcw_next
+  definition step_4.claim_after_end equals claim_after_end
+  definition step_4.claim_each_month equals claim_each_month
+  definition step_4.lcw_carries_over equals lcw_carries_over
+  definition step_5.live equals step_4.live_next
+  definition step_5.surplus equals step_4.surplus_next
+  definition step_5.months_since_end equals step_4.months_since_end_next
+  definition step_5.start equals start_5
+  definition step_5.earnings equals earnings_5
+  definition step_5.aged_25_or_over equals aged_25_or_over
+  definition step_5.housing_costs_element equals housing_costs_element
+  definition step_5.lcw equals step_4.lcw_next
+  definition step_5.claim_after_end equals claim_after_end
+  definition step_5.claim_each_month equals claim_each_month
+  definition step_5.lcw_carries_over equals lcw_carries_over
+  definition step_6.live equals step_5.live_next
+  definition step_6.surplus equals step_5.surplus_next
+  definition step_6.months_since_end equals step_5.months_since_end_next
+  definition step_6.start equals start_6
+  definition step_6.earnings equals earnings_6
+  definition step_6.aged_25_or_over equals aged_25_or_over
+  definition step_6.housing_costs_element equals housing_costs_element
+  definition step_6.lcw equals step_5.lcw_next
+  definition step_6.claim_after_end equals claim_after_end
+  definition step_6.claim_each_month equals claim_each_month
+  definition step_6.lcw_carries_over equals lcw_carries_over
+  definition award_1 equals step_1.award
+  definition earnings_used_1 equals step_1.earnings_used
+  definition entitled_1 equals step_1.entitled
+  definition surplus_after_1 equals step_1.surplus_next
+  definition nil_uc_threshold_1 equals step_1.nil_uc_threshold
+  definition relevant_threshold_1 equals step_1.relevant_threshold
+  definition award_2 equals step_2.award
+  definition earnings_used_2 equals step_2.earnings_used
+  definition entitled_2 equals step_2.entitled
+  definition surplus_after_2 equals step_2.surplus_next
+  definition nil_uc_threshold_2 equals step_2.nil_uc_threshold
+  definition relevant_threshold_2 equals step_2.relevant_threshold
+  definition award_3 equals step_3.award
+  definition earnings_used_3 equals step_3.earnings_used
+  definition entitled_3 equals step_3.entitled
+  definition surplus_after_3 equals step_3.surplus_next
+  definition nil_uc_threshold_3 equals step_3.nil_uc_threshold
+  definition relevant_threshold_3 equals step_3.relevant_threshold
+  definition award_4 equals step_4.award
+  definition earnings_used_4 equals step_4.earnings_used
+  definition entitled_4 equals step_4.entitled
+  definition surplus_after_4 equals step_4.surplus_next
+  definition nil_uc_threshold_4 equals step_4.nil_uc_threshold
+  definition relevant_threshold_4 equals step_4.relevant_threshold
+  definition award_5 equals step_5.award
+  definition earnings_used_5 equals step_5.earnings_used
+  definition entitled_5 equals step_5.entitled
+  definition surplus_after_5 equals step_5.surplus_next
+  definition nil_uc_threshold_5 equals step_5.nil_uc_threshold
+  definition relevant_threshold_5 equals step_5.relevant_threshold
+  definition award_6 equals step_6.award
+  definition earnings_used_6 equals step_6.earnings_used
+  definition entitled_6 equals step_6.entitled
+  definition surplus_after_6 equals step_6.surplus_next
+  definition nil_uc_threshold_6 equals step_6.nil_uc_threshold
+  definition relevant_threshold_6 equals step_6.relevant_threshold
+  definition total_award equals
+    award_1 + award_2 + award_3 + award_4 + award_5 + award_6
 ```

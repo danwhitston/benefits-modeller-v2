@@ -84,3 +84,10 @@ def test_coverage_cvc5_disagreement(monkeypatch):
     bounds = inputs.bounds(inputs.load(UC_BOUNDS, _scope()))
     with pytest.raises(solvers.SolverDisagreement):
         coverage.check(_module(), bounds)
+
+
+def test_coverage_refuses_a_relaxed_module():
+    relaxed = translate.translate(_scope(), relaxed=True)
+    bounds = inputs.bounds(inputs.load(UC_BOUNDS, _scope()))
+    with pytest.raises(ValueError, match="relaxed.*probes only"):
+        coverage.check(relaxed, bounds)

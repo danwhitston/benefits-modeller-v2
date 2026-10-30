@@ -46,7 +46,7 @@ The model keeps the formula in Catala and makes every judgement point an explici
 2. **Structural questions.** Does any household face an effective marginal rate above 100%? Where are the cliff edges? Can two rules conflict? Is there an income range where earning more leaves a household worse off? These are "for all" and "there exists" questions, and they are what a solver is for.
 3. **Strategic questions.** What is the most a household can gain through lawful choices about inputs it controls? What is each judgement point worth to a household? What is the value of an unchecked declaration? These are optimisation questions over the inputs a particular party controls.
 
-The solver finds the problem regions, and microdata estimates how many real households sit in them.
+The solver finds the problem regions. How many real households sit in them comes from elsewhere: from cited official statistics, and perhaps later from PolicyEngine UK's microsimulation (see [Estimating impact](#estimating-impact)).
 
 ## Proposed architecture
 
@@ -56,7 +56,8 @@ The solver finds the problem regions, and microdata estimates how many real hous
 | Input labels | Metadata on every input | Who controls the input, and how it is checked |
 | Authoring | Claude Code drafting Catala from regulation text | Speeds up writing rules; the compiler, tests and a human review of each diff keep it honest |
 | Analysis | Translator from Catala's intermediate representation to SMT-LIB, run with Z3 and cvc5 | Answers structural and strategic questions, with a concrete example household for each finding |
-| Oracle and population | [PolicyEngine UK](https://policyengine.org/uk) | Differential testing of the rules, and weighting findings by Family Resources Survey households |
+| Oracle | [PolicyEngine UK](https://policyengine.org/uk) | Differential testing of the rules, one assessment period at a time |
+| Scale | Cited official statistics; a bridge to PolicyEngine UK as a candidate | How many households a finding's class may cover. No population layer of the project's own (see [Estimating impact](#estimating-impact)) |
 | Optional | Lean | One or two theorems that need parameters as variables, such as monotonicity of net income for any taper rate |
 
 ### Why Catala rather than a new grammar
@@ -93,7 +94,11 @@ LLMs are used to write rules, not to reason about them. LLM translations of lega
 
 ### Estimating impact
 
-PolicyEngine UK's microdata says how many households sit near each weak point. How much AI raises take-up, optimisation or misrepresentation is not in any dataset. It is an assumption, so the model takes it as an explicit parameter and reports results across a range of values.
+Decided by the project owner on 29 October 2026: the project does not build a population layer of its own. PolicyEngine UK already runs microsimulation on Family Resources Survey data, and a second one here would duplicate it.
+
+- **Scale from cited official statistics.** Where a finding needs a sense of scale, it cites DWP's statistics, written answers and similar official sources, with their dates and limits, as [`docs/nil-months.md`](nil-months.md#35-scale) does for nil periods. A cited figure describes a population that the official source counted, which is rarely exactly a finding's class, so the docs say how the two differ.
+- **A bridge to PolicyEngine UK, as a candidate.** A later milestone could hand a finding's region (the bounds on its inputs, as the solver states them) to PolicyEngine UK and ask how many weighted households fall inside. It is not built. PolicyEngine UK computes Universal Credit over a year (see the [mismatch log](mismatches.md), entry 2), so a region defined over assessment periods would need care to map.
+- **Behaviour is an assumption.** How much AI raises take-up, optimisation or misrepresentation is not in any dataset. If a later milestone estimates it, it takes it as an explicit parameter and reports results across a range of values.
 
 ## First version scope
 
@@ -112,7 +117,7 @@ PolicyEngine UK's microdata says how many households sit near each weak point. H
 
 ## Publishing findings
 
-The repository is public. Methods, models and findings about classes of input and rule are published, for example "this class of input is self-declared and worth up to £X a month to N households". Material that would work as a how-to for a particular claim stays out of the repository: worked guides to presenting evidence, or ranked lists of specific declarations to falsify.
+The repository is public. Methods, models and findings about classes of input and rule are published, for example "this class of input is self-declared and worth up to £X a month to N households". Material that would work as a how-to for a particular claim stays out of the repository: worked guides to presenting evidence, or ranked lists of specific declarations to falsify. The tool is published as a method: a run for a fully fixed household prints the solver's example, which is what makes a figure checkable by replay, and the repository's documents give figures for classes and no per-household targets.
 
 ## Status of external tools (checked 28 October 2026)
 
@@ -173,19 +178,34 @@ Merged on 29 October 2026. Scope agreed the same day. [Design](superpowers/specs
 - **Report and CLI.** A top-level indicator in the JSON report that a result was *unknown*, and CLI tests for exit status 1 when the solvers disagree and for exit statuses 1 and 2 from coverage.
 - **PolicyEngine UK.** Map the housing costs element, so that differential tests cover the new rules. PolicyEngine works out the element from rent and tenure. The mapping does not use those: it sets PolicyEngine's `uc_housing_costs_element` directly to our input, as it sets earned income (see `bm.policyengine`).
 
+### Milestone 3: nil assessment periods
+
+Built on 29 and 30 October 2026, on the branch `milestone-3-design`, for merge. [Design](superpowers/specs/2026-10-29-nil-assessment-periods-design.md), [plan](superpowers/plans/2026-10-29-nil-assessment-periods.md), and the research note on [nil assessment periods](nil-months.md).
+
+- **Built.** The items carried forward from the milestone 2 reviews, done first with behaviour unchanged. Then, in `rules/uc.catala_en`, a step scope `WindowStep` that carries the award's state from one period to the next (the end of an award at a nil period, claims under regulation 32A for up to 5 months, and surplus earnings under regulation 54A), chained by `ClaimWindow` over 3 periods, with `ClaimWindow4` to `ClaimWindow6` for the probe only. The exporter inlines sub-scopes (bm-ir version 1, [`docs/bm-ir.md`](bm-ir.md)). The translator gained a relaxed mode for probes. A window query in `bm.window` reports the gain, loss, spread and extra payday figures for each case of DWP's three new judgement points, with replay through Catala and an independent reference in the tests. A [scaling probe](spike-window-scaling.md) measured solver time from 3 to 6 periods. What the model leaves out is in [model gaps](model-gaps.md), and why windows with a nil period are not compared with PolicyEngine UK is entry 2 of the [mismatch log](mismatches.md).
+- **Findings** (30 October 2026; single claimant, exact rules over 3 periods starting 6 April 2026, every period on or before 31 March 2027, a housing costs element of up to 804.00 pounds, earnings of up to 10,000 pounds a period, the last-period rule (the last period's award at least 1p, applied as model gaps sets out), no specialist review; all conditions, the figures for every case and the caveats are in [model gaps](model-gaps.md#milestone-3-the-timing-of-pay-over-a-window-with-nil-periods)):
+  - In the realistic cases (a claim after the award ends, each failed month counted, an LCW finding kept), the timing of a fixed total of earnings over 3 periods can raise the award by up to 1,375.02 pounds against an even split, with or without an LCW finding. That is 2p more than 55% of the 2,500 pounds added to the nil UC threshold to give the relevant threshold for surplus earnings, which on the project's reading is what bounds it; on the project's reading, the 2p comes from rounding: each period's earnings deduction is rounded to the penny (regulation 6, as the rules read it), and so is the nil UC threshold.
+  - In the same cases it can lower the award by up to 469.71 pounds with an LCW finding (in the solver's example, two periods' unused work allowance) and 2p without. For a claimant paid every four weeks with an LCW finding, a period with two paydays (the pattern P, 2P, P) pays from 731.87 pounds more to 195.25 pounds less over the window than the same four payments spread evenly.
+  - Where no claim is made after the award ends, the gain is 2p, with or without an LCW finding, and the loss is at least 2,927.49 pounds with an LCW finding and at least 2,457.81 pounds without, lower bounds because the loss carries on past the window. Two figures in stress cases are *unknown* after 600 seconds.
+  - A figure says what the rules would pay for a pattern of reported earnings, not that the pattern is open to a claimant: regulation 60 on notional earnings and regulation 61(6) on two monthly payments in one period may limit it (see [model gaps](model-gaps.md)).
+- **Assumptions for review.** The seven in the design, each the project's reading from the cited sources, made by AI research agents and checked at source by a second agent. Two rulings during execution settled points in them: each surplus is measured against the thresholds of the period whose earnings are measured (which matters only where an LCW finding is lost), and the nil UC threshold is the maximum amount divided by 0.55, rounded once, plus the work allowance.
+- **Direction on population questions** (decided by the project owner on 29 October 2026): no population layer of the project's own; see [Estimating impact](#estimating-impact).
+
 ### Tidy-up between milestones
 
-None outstanding. The items deferred from the milestone 1 and 2 reviews were fixed in one pull request after milestone 2.
+The items deferred from the milestone 1 and 2 reviews were fixed in one pull request after milestone 2, and the ones that touched the milestone 3 code were done at the start of milestone 3. Outstanding:
+
+- Lines over 100 columns in the Python sources and tests. No linter is configured, so nothing enforces a limit; configure one and reflow, or drop the limit.
 
 ### Candidates for later milestones
 
 Gaps in the model, and how each limits findings, are recorded in [model gaps](model-gaps.md). Remediation is planned from there.
 
 - **The rounding stage.** The stage at which regulation 6 rounds is an open question with three readings on record ([mismatch log](mismatches.md), entry 1). A query could make the rounding stage a parameter and have the solver bound how far the readings can disagree.
-- **Rules that cross assessment periods,** such as surplus earnings and an award ending after a nil period (regulation 54A). Until these are modelled, timing queries are limited to periods where the award stays above nil. Regulation 54A reduces such a gain only above the surplus earnings threshold (see the milestone 2 entry), and regulation 60 is a separate possible limit, so the reason for the limit is that the end of the award and the reclaim cannot be valued, not that the law blocks the gain. These rules need a Catala scope covering several periods, and so calls to sub-scopes in the exporter and translator.
-- **How nil months work in practice.** Before modelling nil months, find out how they are handled: how an award is closed after an assessment period with a nil award, how claims treated as made under [regulation 32A](https://www.legislation.gov.uk/uksi/2013/380/regulation/32A) of the Claims and Payments Regulations are handled in the months that follow, and what difficulties claimants with irregular earnings have reported, such as repeated reclaims or entitlement lost to the timing of a claim. Likely sources are the Work and Pensions Committee, the Social Security Advisory Committee, and welfare rights organisations such as CPAG and Citizens Advice. None has been checked yet. Findings would be published about classes of claimant, not as guidance for a particular claim (see [Publishing findings](#publishing-findings)).
+- **Rules that cross assessment periods.** Modelled in milestone 3 for a window of 3 periods, within the limits in [model gaps](model-gaps.md#the-windows-limits). Still open: longer windows (the [scaling probe](spike-window-scaling.md) measured solver time up to 6 periods on one household), periods after 31 March 2027 and chains of claims that cross that date, and regulation 61(6) reallocation.
+- **How nil months work in practice.** Answered by [`docs/nil-months.md`](nil-months.md) (29 October 2026): how an award ends after a nil period, how DWP handles the claims treated as made under [regulation 32A](https://www.legislation.gov.uk/uksi/2013/380/regulation/32A) of the Claims and Payments Regulations in the months that follow, the evidence on scale, and what claimants and advice agencies have reported. Its section 4 lists what remains unresolved, and its "Sources not reached" the sources it could not reach or did not find (among them two House of Commons Library briefings, and any Work and Pensions Committee report).
 - **Other strategic queries considered for milestone 2:** when pay falls, with the couple finding as the judgement point (needs joint claims, and a comparison of one joint claim with two single claims); and when self-employed receipts fall, with the "gainful self-employment" finding as the judgement point (needs the minimum income floor and the rules on self-employed earnings).
 - **The rest of the first version's rules:** income tax and National Insurance, the benefit cap and its earnings exemption, children, couples, and a fuller housing calculation (weekly rent, under-occupancy, the Local Housing Allowance).
 - **Translator gaps that this later content will reach:**
-  - Decimal rates with no terminating decimal form (for example 52/12, for converting weekly amounts to monthly) are written as `(/ a b)`, which Z3's linearity check rejects.
+  - Corrected 29 October 2026 (the [milestone 3 plan](superpowers/plans/2026-10-29-nil-assessment-periods.md), ruling 1). This entry said that decimal rates with no terminating decimal form, such as 52/12 for converting weekly amounts to monthly, are written in a form that Z3's linearity check rejects. That does not reproduce: Z3 5.3.2 and cvc5 1.4.2 accept the translator's form, `bm_round` of the exact product or quotient of the money and a rational constant (for example `(* (to_real m) (/ 20.0 11.0))`), with plain checks, and `tests/test_translate.py` pins it for 20/11 and 11/20. The nil UC threshold, which divides by 0.55, uses it. It is no longer a gap.
   - A zero divisor in an unreachable division is refused, and Catala's `DivisionByZero` is not modelled as an obligation.

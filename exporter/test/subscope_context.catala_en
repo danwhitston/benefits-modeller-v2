@@ -1,0 +1,20 @@
+# Fixture: a sub-scope with a context input, which bm-ir does not support
+
+```catala
+declaration scope Inner:
+  context x content money
+  output y content money
+
+scope Inner:
+  definition x equals $5
+  definition y equals x * 2.0
+
+declaration scope Context:
+  input a content money
+  m1 scope Inner
+  output total content money
+
+scope Context:
+  definition m1.x equals a
+  definition total equals m1.y
+```

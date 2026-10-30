@@ -5,7 +5,7 @@ from fractions import Fraction
 import z3
 
 from bm.household import Script
-from bm.translate import SORTS, SmtModule
+from bm.translate import SmtModule
 
 
 class EvaluationError(RuntimeError):
@@ -21,8 +21,9 @@ def outputs(module: SmtModule, inputs: dict[str, int | bool]) -> dict[str, int |
     names = [v.name for v in module.inputs]
     if set(inputs) != set(names):
         raise ValueError(f"expected values for exactly {names}, got {sorted(inputs)}")
+    sorts = module.sorts
     for v in module.inputs:
-        sort, value = SORTS[v.type], inputs[v.name]
+        sort, value = sorts[v.name], inputs[v.name]
         if (sort == "Bool") != isinstance(value, bool) or not isinstance(value, int):
             raise ValueError(f"{v.name} is {v.type}, got {value!r}")
     script = Script(module)

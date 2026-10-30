@@ -27,7 +27,7 @@ from typing import Literal
 from bm import solvers
 from bm.household import Script
 from bm.inputs import Bound
-from bm.translate import SORTS, SmtModule, literal, quote
+from bm.translate import RELAXED_REFUSAL, SORTS, SmtModule, literal, quote
 
 AT_E = "bm.at_e"
 AT_E_PLUS_DELTA = "bm.at_e_plus_delta"
@@ -70,7 +70,10 @@ def emr(
     `SolverDisagreement` if cvc5 finds a larger fall than Z3's maximum.
     If Z3 runs out of time the status is `unknown` and every other field is
     None. If cvc5 does, the status is `unknown` but Z3's maximum is returned.
+    Raises `ValueError` for a relaxed module, which is not the rules.
     """
+    if module.relaxed:
+        raise ValueError(f"emr cannot be answered: {RELAXED_REFUSAL}")
     sorts = {v.name: SORTS[v.type] for v in module.inputs}
     if sorts.get(earnings_input) != "Int":
         raise ValueError(f"{earnings_input} is not a money, integer or date input")

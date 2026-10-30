@@ -5,6 +5,8 @@
     bm query emr IR --inputs TOML [--delta 100] [--timeout-ms 60000] [--json]
     bm query timing IR --inputs TOML [--start YYYY-MM-DD] [--total POUNDS]
         [--fix NAME=VALUE ...] [--cap 8] [--timeout-ms 60000] [--json]
+    bm query window IR --inputs TOML [--start YYYY-MM-DD] [--total POUNDS]
+        [--fix NAME=VALUE ...] [--cap 12] [--probe] [--relaxed] [--timeout-ms 60000] [--json]
     bm query judgement IR NAME --inputs TOML [--start YYYY-MM-DD]
         [--fix NAME=VALUE ...] [--timeout-ms 60000] [--json]
     bm check IR --inputs TOML [--n-random 50] [--seed 1]
@@ -18,13 +20,15 @@ Exit status: 0 when there are no errors, 1 on any failure (a missing file, a
 solver disagreement, a coverage gap, an unexplained mismatch), and 2 when a
 result is unknown, for example after a timeout. A failure takes precedence.
 Every `--json` output has a top-level `"unknown"` flag, and every text output
-ends by pointing to docs/model-gaps.md.
+ends by pointing to docs/model-gaps.md (a probe's, to the gaps that limit the model).
 
 `--fix NAME=VALUE` gives an input a value: money in pounds with two decimal
 places (`500.00`), a date as `YYYY-MM-DD`, a Boolean as `true` or `false`.
 `--total` takes pounds in the same form. A bad name or value exits 1.
 `--rules` names the rules directory recorded in the provenance block and
-checked against the IR; it defaults to the directory of the inputs file.
+checked against the IR. Catala's interpreter runs the same rules, for the
+replay of a witness and for the differential check. It defaults to the
+directory of the inputs file.
 """
 
 import argparse
@@ -34,7 +38,19 @@ import sys
 from datetime import date
 from pathlib import Path
 
-from bm import coverage, inputs, ir, provenance, queries, report, solvers, strategic, translate, units
+from bm import (
+    coverage,
+    inputs,
+    ir,
+    provenance,
+    queries,
+    report,
+    solvers,
+    strategic,
+    translate,
+    units,
+    window,
+)
 from bm.inputs import InputSpec
 
 _POUNDS = re.compile(r"-?[0-9]+\.[0-9]{2}")
@@ -98,6 +114,27 @@ def _parser() -> argparse.ArgumentParser:
     ti.add_argument("--cap", type=int, default=strategic.DEFAULT_CASE_CAP, help="most judgement cases")
     ti.add_argument("--json", action="store_true")
 
+    w = kinds.add_parser(
+        "window",
+        help="what the timing of earnings does to the award over consecutive periods",
+        description="Gain, loss, spread and extra payday figures over a window of assessment "
+        "periods. The window's length is that of the IR: 3 periods for a finding. Findings use "
+        "the exact rules at 3 periods; --probe marks a run for measuring solver time, which is "
+        "not a finding, and a longer window or --relaxed is refused without it. A longer window "
+        "leaves out the extra payday figures. The text shows the households at the optimum for "
+        "the realistic cases only (all cases where none is realistic); --json shows them all.",
+    )
+    with_ir(w)
+    with_timeout(w)
+    with_fix(w)
+    w.add_argument("--total", help="fix the total of earnings over the window, in pounds")
+    w.add_argument("--cap", type=int, default=window.DEFAULT_CASE_CAP, help="most judgement cases")
+    w.add_argument("--probe", action="store_true", help="mark the run as a probe, not a finding")
+    w.add_argument(
+        "--relaxed", action="store_true", help="relaxed translation, for probes only: not the rules"
+    )
+    w.add_argument("--json", action="store_true")
+
     j = kinds.add_parser("judgement", help="what a decision maker's finding is worth")
     with_ir(j)
     j.add_argument("name", help="the Boolean judgement point, such as has_lcw")
@@ -121,12 +158,12 @@ def _rules_dir(args: argparse.Namespace) -> Path:
     return args.rules or args.inputs.resolve().parent
 
 
-def _load_specs(args: argparse.Namespace):
+def _load_specs(args: argparse.Namespace, relaxed: bool = False):
     # Provenance first, so that an IR exported from other rules, or by another
     # Catala, fails here rather than as a solver result or a translator bug.
     prov = provenance.collect(_rules_dir(args), args.ir)
     scope = ir.load(args.ir)
-    module = translate.translate(scope)
+    module = translate.translate(scope, relaxed=relaxed)
     return prov, module, inputs.load(args.inputs, scope)
 
 
@@ -135,8 +172,8 @@ def _load(args: argparse.Namespace):
     return prov, module, inputs.bounds(specs)
 
 
-def _print_text(sections: list[list[str]]) -> None:
-    sections = [*sections, [report.MODEL_GAPS_LINE]]
+def _print_text(sections: list[list[str]], gaps: str = report.MODEL_GAPS_LINE) -> None:
+    sections = [*sections, [gaps]]
     print("\n\n".join("\n".join(s) for s in sections))
 
 
@@ -237,6 +274,33 @@ def _query_timing(args: argparse.Namespace) -> int:
     return 2 if result.status == "unknown" else 0
 
 
+def _query_window(args: argparse.Namespace) -> int:
+    rules = report.rules_file(_rules_dir(args))
+    prov, module, specs = _load_specs(args, relaxed=args.relaxed)
+    # The extra payday figures compare a pattern over exactly 3 periods.
+    longer = window.periods_of(module) != window.FINDING_PERIODS
+    result = window.window(
+        module,
+        specs,
+        first_start=_date("--start", args.start),
+        total=None if args.total is None else _money("--total", args.total),
+        fixed=parse_fixed(specs, args.fix),
+        figures=tuple(f for f in window.FIGURES if not (longer and f in window.PAYDAY)),
+        probe=args.probe,
+        cap=args.cap,
+        timeout_ms=args.timeout_ms,
+    )
+    window.replay(rules, result)
+    if args.json:
+        print(json.dumps(report.window_json(result, specs, prov), indent=2))
+    else:
+        _print_text(
+            [report.window_text(result, specs), report.window_provenance_text(prov, result)],
+            gaps=report.PROBE_MODEL_GAPS_LINE if result.probe else report.MODEL_GAPS_LINE,
+        )
+    return 2 if result.status == "unknown" else 0
+
+
 def _query_judgement(args: argparse.Namespace) -> int:
     rules = report.rules_file(_rules_dir(args))
     prov, module, specs = _load_specs(args)
@@ -257,8 +321,9 @@ def _query_judgement(args: argparse.Namespace) -> int:
 
 
 def _check(args: argparse.Namespace) -> int:
+    rules = report.rules_file(_rules_dir(args))
     prov, module, bounds = _load(args)
-    d = report.differential(module, bounds, args.n_random, args.seed)
+    d = report.differential(module, bounds, args.n_random, args.seed, rules)
     _print_text([report.differential_text(d, module.inputs), report.provenance_text(prov)])
     return 1 if d.unexplained else 0
 
@@ -283,6 +348,7 @@ def main(argv: list[str] | None = None) -> int:
         ("coverage", None): _coverage,
         ("query", "emr"): _query_emr,
         ("query", "timing"): _query_timing,
+        ("query", "window"): _query_window,
         ("query", "judgement"): _query_judgement,
         ("check", None): _check,
         ("report", None): _report,

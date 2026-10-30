@@ -1,3 +1,4 @@
+from fractions import Fraction
 import time
 from importlib.metadata import version
 
@@ -51,76 +52,6 @@ def test_solver_timeout_is_unknown(solver):
     assert result.model is None
 
 
-def test_z3_maximize():
-    script = """
-(declare-const x Int)
-(assert (<= 0 x 7))
-(maximize x)
-(check-sat)
-"""
-    result = solvers.run("z3", script, 10_000)
-    assert result.status == "sat"
-    assert result.model == {"x": 7}
-
-
-def test_z3_maximize_timeout_is_unknown():
-    script = HARD.replace("(check-sat)", "(maximize x)\n(check-sat)")
-    result = solvers.run("z3", script, 1)
-    assert result.status == "unknown"
-    assert result.model is None
-
-
-def test_z3_maximize_unbounded_is_unknown():
-    # Z3 answers sat with an arbitrary model (x = 0) and reason "unknown".
-    script = "(declare-const x Int)\n(assert (>= x 0))\n(maximize x)\n(check-sat)"
-    result = solvers.run("z3", script, 10_000)
-    assert result.status == "unknown"
-    assert result.model is None
-
-
-def test_z3_maximize_unbounded_nonlinear_is_unknown():
-    script = """
-(declare-const x Int)
-(declare-const y Int)
-(assert (> x 0))
-(assert (= y (* x x)))
-(maximize y)
-(check-sat)
-"""
-    result = solvers.run("z3", script, 1_000)
-    assert result.status == "unknown"
-    assert result.model is None
-
-
-def test_z3_maximize_small_integer_problem_is_sat():
-    script = """
-(declare-const x Int)
-(declare-const y Int)
-(assert (<= 0 x 10))
-(assert (<= 0 y 10))
-(assert (<= (+ x y) 12))
-(maximize (- (* 3 x) y))
-(check-sat)
-"""
-    result = solvers.run("z3", script, 10_000)
-    assert result.status == "sat"
-    assert result.model == {"x": 10, "y": 0}
-
-
-def test_z3_maximize_proved_optimum_is_sat():
-    # A nonlinear objective that Z3 does solve: the optimum must still come back.
-    script = """
-(declare-const x Int)
-(declare-const y Int)
-(assert (and (> x 0) (< x 100000) (> y 0) (< y 100000)))
-(maximize (* x y))
-(check-sat)
-"""
-    result = solvers.run("z3", script, 10_000)
-    assert result.status == "sat"
-    assert result.model == {"x": 99999, "y": 99999}
-
-
 @pytest.mark.parametrize("solver", SOLVERS)
 def test_real_valued_constant_is_an_error(solver):
     with pytest.raises(solvers.SolverError):
@@ -140,6 +71,13 @@ def test_versions():
     # "1.4.2-modified" from the Linux one. Both must be the locked package.
     assert versions["cvc5"].split("-")[0] == version("cvc5")
     assert versions["z3"].startswith("5.")
+
+
+def test_disagreement_message_with_equal_statuses():
+    text = str(solvers.SolverDisagreement(
+        solvers.SolverResult("sat", {}, "z"), solvers.SolverResult("sat", {}, "c"), "ctx"))
+    assert "says sat but cvc5 says sat" not in text and "ctx" in text
+    assert text == "z3 and cvc5 disagree: ctx"
 
 
 def test_disagreement_carries_both_results():
@@ -265,6 +203,39 @@ def test_optimise_unbounded_objective_is_unknown_and_stops(monkeypatch):
     assert calls[0] > 1
 
 
+def test_unbounded_objective_is_unknown_within_the_check_cap():
+    # An objective with no upper bound: the search gallops until the cap.
+    result = solvers.optimise_and_confirm(
+        ["(declare-const x Int)", "(assert (>= x 0))"], "x", "max", timeout_ms=60_000, max_checks=20
+    )
+    assert result.status == "unknown" and result.value is None
+
+
+def test_the_check_cap_counts_z3_checks(monkeypatch):
+    calls = _count_z3_calls(monkeypatch)
+    lines = ["(declare-const x Int)", "(assert (>= x 0))"]
+    solvers.optimise_and_confirm(lines, "x", "max", timeout_ms=60_000, max_checks=5)
+    assert calls[0] == 5
+
+
+def test_a_cap_above_what_the_search_needs_changes_nothing():
+    result = solvers.optimise_and_confirm(BOX, "x", "max", 10_000, max_checks=200)
+    assert result.status == "optimal" and result.value == 7
+
+
+def test_optimise_small_integer_problem():
+    lines = [
+        "(declare-const x Int)",
+        "(declare-const y Int)",
+        "(assert (<= 0 x 10))",
+        "(assert (<= 0 y 10))",
+        "(assert (<= (+ x y) 12))",
+    ]
+    result = solvers.optimise_and_confirm(lines, "(- (* 3 x) y)", "max", 10_000)
+    assert result.status == "optimal" and result.value == 30
+    assert (result.model["x"], result.model["y"]) == (10, 0)
+
+
 def test_optimise_z3_unknown_during_the_search_gives_no_value(monkeypatch):
     # Z3 finds a first model, then cannot settle whether a better one exists.
     real = solvers.run
@@ -311,3 +282,104 @@ def test_z3_runs_in_a_fresh_context(monkeypatch):
         assert solvers.run("z3", SAT, 10_000).model == {"a b": 5, "flag": True}
     assert len(contexts) == 2 and contexts[0] is not contexts[1]
     assert all(c is not z3.main_ctx() for c in contexts)
+
+
+REAL_BOX = ["(declare-const x Real)", "(assert (<= 0.0 x 2.5))"]
+
+
+@pytest.mark.parametrize("direction", ["max", "min"])
+def test_real_objective_gives_the_largest_reachable_integer(direction):
+    # The supremum of x is 5/2 and its infimum is 0. The value is the integer
+    # the search proves reachable that is furthest in the direction: 2 for the
+    # maximum and 0 for the minimum.
+    result = solvers.optimise_and_confirm(REAL_BOX, "x", direction, 10_000, sort="Real")
+    assert result.status == "optimal" and result.confirmed
+    assert result.value == (2 if direction == "max" else 0)
+    assert isinstance(result.model["x"], Fraction)
+    assert Fraction(result.value) - 1 < result.model["x"] < Fraction(5, 2) + 1
+    assert result.model["bm.objective"] == result.model["x"]
+
+
+def test_real_objective_below_an_integer_is_not_confirmed_optimal_early():
+    # x < 3 exactly: no real value reaches 3, but every integer below is reachable.
+    lines = ["(declare-const x Real)", "(assert (and (<= 0.0 x) (< x 3.0)))"]
+    result = solvers.optimise_and_confirm(lines, "x", "max", 10_000, sort="Real")
+    assert (result.status, result.value, result.confirmed) == ("optimal", 2, True)
+
+
+def test_real_sort_must_be_named():
+    with pytest.raises(solvers.SolverError):
+        solvers.optimise_and_confirm(REAL_BOX, "x", "max", 10_000)
+    with pytest.raises(ValueError):
+        solvers.optimise_and_confirm(REAL_BOX, "x", "max", 10_000, sort="Float")
+
+
+@pytest.mark.parametrize("solver", SOLVERS)
+def test_real_constants_are_read_as_fractions_when_asked(solver):
+    script = "(declare-const r Real)\n(assert (= r (/ 11.0 2.0)))\n(check-sat)"
+    result = solvers.run(solver, script, 10_000, reals=True)
+    assert result.model == {"r": Fraction(11, 2)}
+    assert isinstance(result.model["r"], Fraction)
+
+
+def test_real_minimum_with_a_fractional_infimum_is_the_ceiling():
+    # The least x is 0.3: x <= 1 is reachable and x <= 0 is proved out of reach.
+    lines = ["(declare-const x Real)", "(assert (and (<= 0.3 x) (<= x 2.5)))"]
+    result = solvers.optimise_and_confirm(lines, "x", "min", 10_000, sort="Real")
+    assert (result.status, result.value, result.confirmed) == ("optimal", 1, True)
+    assert Fraction(3, 10) <= result.model["x"] <= 1
+
+
+def test_z3_seed_sets_its_random_seed(monkeypatch):
+    real = z3.Solver
+    options = []
+
+    def solver(*args, **kwargs):
+        engine = real(*args, **kwargs)
+        original = engine.set
+
+        def record(name, value):
+            options.append((name, value))
+            return original(name, value)
+
+        engine.set = record
+        return engine
+
+    monkeypatch.setattr(z3, "Solver", solver)
+    assert solvers.run("z3", SAT, 10_000, seed=7).status == "sat"
+    assert ("smt.random_seed", 7) in options
+    options.clear()
+    assert solvers.run("z3", SAT, 10_000).status == "sat"
+    assert not [o for o in options if "seed" in o[0]]
+
+
+def test_cvc5_seed_sets_its_seed_option(monkeypatch):
+    options = []
+
+    class Recording(solvers.cvc5.Solver):
+        def setOption(self, name, value):
+            options.append((name, value))
+            super().setOption(name, value)
+
+    monkeypatch.setattr(solvers.cvc5, "Solver", Recording)
+    assert solvers.run("cvc5", SAT, 10_000, seed=7).status == "sat"
+    assert ("seed", "7") in options
+    options.clear()
+    assert solvers.run("cvc5", SAT, 10_000).status == "sat"
+    assert not [o for o in options if o[0] == "seed"]
+
+
+def test_optimise_passes_the_seed_to_every_check(monkeypatch):
+    seen = []
+    real = solvers.run
+
+    def spy(solver, script, timeout_ms, **kwargs):
+        seen.append((solver, kwargs.get("seed")))
+        return real(solver, script, timeout_ms, **kwargs)
+
+    monkeypatch.setattr(solvers, "run", spy)
+    lines = ["(declare-const x Int)", "(assert (and (>= x 0) (<= x 9)))"]
+    result = solvers.optimise_and_confirm(lines, "x", "max", 10_000, seed=3)
+    assert (result.status, result.value) == ("optimal", 9)
+    assert {s for _, s in seen} == {3}
+    assert {name for name, _ in seen} == {"z3", "cvc5"}

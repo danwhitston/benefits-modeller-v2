@@ -25,6 +25,12 @@ Rounding follows Catala's `o_mult_mon_rat`: the exact product is rounded to the
 nearest penny, halves away from zero. Money times a decimal is linear only when
 the decimal is a constant, or an `ite` tree of constants such as a rate that
 depends on the date; the product is then distributed into the branches.
+
+`translate(scope, relaxed=True)` is for scaling probes and is not the rules. It
+makes money `Real` and `bm_round` the identity, so nothing is rounded to the
+penny. Its results are never findings about the rules: a relaxed award can
+differ from Catala's by the pennies that the rounding moves. `SmtModule.relaxed`
+says which translation a module is.
 """
 
 from dataclasses import dataclass
@@ -39,6 +45,15 @@ SORTS = {"money": "Int", "integer": "Int", "date": "Int", "decimal": "Real", "bo
 BM_ROUND = (
     "(define-fun bm_round ((q Real)) Int"
     " (ite (>= q 0.0) (to_int (+ q 0.5)) (- (to_int (+ (- q) 0.5)))))"
+)
+# The relaxed translation: no rounding, and money is Real.
+BM_ROUND_RELAXED = "(define-fun bm_round ((q Real)) Real q)"
+RELAXED_SORTS = {**SORTS, "money": "Real"}
+
+
+RELAXED_REFUSAL = (
+    "this module is a relaxed translation, which is for probes only and is not the rules;"
+    " it cannot answer a query that reports findings"
 )
 
 
@@ -94,6 +109,15 @@ class SmtModule:
     # Output name to SMT sort, in the scope's order. `functions` also holds
     # internal definitions, so `bm.evaluate` reads this to know the outputs.
     outputs: dict[str, str]
+    # True for the relaxed translation (see the module docstring): money is
+    # `Real` and nothing is rounded. It is not the rules.
+    relaxed: bool = False
+
+    @property
+    def sorts(self) -> dict[str, str]:
+        """The SMT sort of each input, by name."""
+        table = RELAXED_SORTS if self.relaxed else SORTS
+        return {v.name: table[v.type] for v in self.inputs}
 
 
 def quote(name: str) -> str:
@@ -217,19 +241,20 @@ def _ite(c: _Term, a: _Term, b: _Term) -> _Term:
 
 
 # Operators with fixed operand sorts: name -> (operand sorts, result, head).
+# "M" is the sort of money: Int, or Real in the relaxed translation.
 _FIXED = {
     "Not": (("Bool",), "Bool", "not"),
     "And": (("Bool", "Bool"), "Bool", "and"),
     "Or": (("Bool", "Bool"), "Bool", "or"),
     "Xor": (("Bool", "Bool"), "Bool", "xor"),
     "Minus_int": (("Int",), "Int", "-"),
-    "Minus_mon": (("Int",), "Int", "-"),
+    "Minus_mon": (("M",), "M", "-"),
     "Minus_rat": (("Real",), "Real", "-"),
     "Add_int_int": (("Int", "Int"), "Int", "+"),
-    "Add_mon_mon": (("Int", "Int"), "Int", "+"),
+    "Add_mon_mon": (("M", "M"), "M", "+"),
     "Add_rat_rat": (("Real", "Real"), "Real", "+"),
     "Sub_int_int": (("Int", "Int"), "Int", "-"),
-    "Sub_mon_mon": (("Int", "Int"), "Int", "-"),
+    "Sub_mon_mon": (("M", "M"), "M", "-"),
     "Sub_rat_rat": (("Real", "Real"), "Real", "-"),
 }
 # Comparisons are untyped in Catala 1.3.0; the operands give the sort.
@@ -237,8 +262,11 @@ _COMPARE = {"Eq": "=", "Lt": "<", "Lte": "<=", "Gt": ">", "Gte": ">="}
 
 
 class _Translator:
-    def __init__(self, scope: ir.Scope):
-        self.inputs = {v.name: SORTS[v.type] for v in scope.inputs}
+    def __init__(self, scope: ir.Scope, relaxed: bool = False):
+        self.relaxed = relaxed
+        self.sorts = RELAXED_SORTS if relaxed else SORTS
+        self.money = self.sorts["money"]
+        self.inputs = {v.name: self.sorts[v.type] for v in scope.inputs}
         self.args = [quote(v.name) for v in scope.inputs]
         # Translated definitions so far: name -> (value, defined).
         self.defs: dict[str, tuple[_Term, _Term]] = {}
@@ -247,7 +275,7 @@ class _Translator:
 
     def definition(self, d: ir.Definition) -> tuple[_Term, _Term]:
         self.current = d.name
-        sort = SORTS[d.type]
+        sort = self.sorts[d.type]
         value, defined = self.expr(d.expr, TRUE)
         if value is None:  # never has a value; any constant will do
             value = _Const(sort, False if sort == "Bool" else 0)
@@ -268,7 +296,7 @@ class _Translator:
             case ir.Lit(type=t, value=v):
                 if isinstance(v, date):
                     v = units.days(v)
-                return _Const(SORTS[t], v), TRUE
+                return _Const(self.sorts[t], v), TRUE
             case ir.VarRef(name=name):
                 if name in self.inputs:
                     return _Input(name, self.inputs[name]), TRUE
@@ -335,6 +363,8 @@ class _Translator:
 
         if e.op in _FIXED:
             operands, result, head = _FIXED[e.op]
+            operands = tuple(self.money if x == "M" else x for x in operands)
+            result = self.money if result == "M" else result
             check(operands)
             if head == "not":
                 return _not(args[0]), defined
@@ -350,7 +380,7 @@ class _Translator:
                 raise TranslateError(f"{e.op} at {e.pos} cannot compare {sorts}")
             return _App(_COMPARE[e.op], tuple(args), "Bool"), defined
         if e.op in ("Mult_mon_rat", "Div_mon_rat"):
-            check(("Int", "Real"))
+            check((self.money, "Real"))
             money, rate = args
             tree = self.constant_tree(rate)
             if tree is None:
@@ -380,8 +410,9 @@ class _Translator:
         if e.op == "Div_mon_rat" and tree.value == 0:
             raise TranslateError(f"division by a zero decimal at {e.pos}")
         head = "*" if e.op == "Mult_mon_rat" else "/"
-        exact = _App(head, (_App("to_real", (money,), "Real"), tree), "Real")
-        return _App("bm_round", (exact,), "Int")
+        as_real = money if self.relaxed else _App("to_real", (money,), "Real")
+        exact = _App(head, (as_real, tree), "Real")
+        return _App("bm_round", (exact,), self.money)
 
     def smt(self, t: _Term) -> str:
         match t:
@@ -396,19 +427,22 @@ class _Translator:
         raise TranslateError(f"unknown term {t!r}")
 
 
-def translate(scope: ir.Scope) -> SmtModule:
+def translate(scope: ir.Scope, relaxed: bool = False) -> SmtModule:
+    """The SMT-LIB module for `scope`. `relaxed` is not the rules: see the module docstring."""
     names = [v.name for v in scope.inputs] + [d.name for d in scope.definitions]
     if "bm_round" in names:
         raise TranslateError("a scope variable named bm_round clashes with the preamble")
-    t = _Translator(scope)
-    params = "(" + " ".join(f"({quote(v.name)} {SORTS[v.type]})" for v in scope.inputs) + ")"
+    t = _Translator(scope, relaxed)
+    params = "(" + " ".join(f"({quote(v.name)} {t.sorts[v.type]})" for v in scope.inputs) + ")"
     lines = [
         f"; Scope {scope.name}, from bm-ir {ir.IR_VERSION} (Catala {scope.catala_version})",
-        BM_ROUND,
     ]
+    if relaxed:
+        lines.append("; RELAXED: money is Real and nothing is rounded. Not the rules.")
+    lines.append(BM_ROUND_RELAXED if relaxed else BM_ROUND)
     for d in scope.definitions:
         value, defined = t.definition(d)
-        sort = SORTS[d.type]
+        sort = t.sorts[d.type]
         lines.append(f"(define-fun {quote(d.name)} {params} {sort} {t.smt(value)})")
         lines.append(
             f"(define-fun {quote(d.name + '.defined')} {params} Bool {t.smt(defined)})"
@@ -419,5 +453,6 @@ def translate(scope: ir.Scope) -> SmtModule:
         inputs=list(scope.inputs),
         functions={d.name: quote(d.name) for d in scope.definitions},
         obligations=t.obligations,
-        outputs={name: SORTS[by_name[name].type] for name in scope.outputs},
+        outputs={name: t.sorts[by_name[name].type] for name in scope.outputs},
+        relaxed=relaxed,
     )

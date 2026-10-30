@@ -1,0 +1,111 @@
+# The inputs of the Catala scopes ClaimWindow, ClaimWindow4, ClaimWindow5 and
+# ClaimWindow6: a run of 3 to 6 consecutive monthly assessment periods. One file
+# serves all four, because the loader expands the per-period entries to the
+# length of the scope it is given.
+#
+# The keys are those of rules/uc.inputs.toml, and two more:
+#
+# per_period: true, on a money, date or integer input named <base>. The loader
+#   expands it to <base>_1, <base>_2 and so on, one input per period, each with
+#   the same bounds and labels. An entry that matches no input of the scope is
+#   refused.
+# applies_when: the name of a Boolean judgement point, on a Boolean judgement
+#   point. The input matters only when that point is true. Case expansion skips
+#   the combinations in which it does not apply and fixes it False there.
+#
+# Labels for the inputs shared with rules/uc.inputs.toml are the same, and a
+# test checks that. The rates are 2026/27 only, so the date range stops before
+# the next uprating. Readings are numbered as in the design,
+# docs/superpowers/specs/2026-10-29-nil-assessment-periods-design.md, and
+# explained in docs/nil-months.md (sources checked 29 October 2026).
+
+# The first period starts when the claimant chooses to claim, and later periods
+# follow one calendar month apart (Python computes the dates). The latest start
+# is 31 March 2027 for every period, so that no period in a finding begins after
+# the end of the temporary de minimis period (reading 6): the window query holds
+# the first start low enough that the last period begins on or before that day.
+[inputs.start]
+type = "date"
+per_period = true
+min = 2026-04-06
+max = 2027-03-31
+controlled_by = ["claimant"]
+checked_by = "dwp_records"
+
+# Employed earnings arrive through HMRC's Real Time Information feed, and
+# their timing and amount can be shaped by the employer or by the claimant.
+# A period with no report counts as nil: regulation 61(2) of the Universal
+# Credit Regulations 2013, https://www.legislation.gov.uk/uksi/2013/376/regulation/61
+# (checked 29 October 2026). Same labels as earned_income in uc.inputs.toml.
+[inputs.earnings]
+type = "money"
+per_period = true
+min = "0.00"
+max = "10000.00"
+controlled_by = ["employer", "claimant"]
+checked_by = "third_party_data"
+
+# The three household facts are the same in every period and carry the labels
+# they have in uc.inputs.toml.
+[inputs.aged_25_or_over]
+type = "bool"
+controlled_by = ["nobody"]
+checked_by = "documentary_evidence"
+
+# Housing costs element, taken as already worked out; the landlord sets the rent
+# it rests on. The maximum keeps every modelled household below the benefit
+# cap, which is not modelled: regulation 80A of the Universal Credit
+# Regulations 2013 sets the annual limit for a single claimant outside Greater
+# London, with no child, at 14,753 pounds, divided by 12 (1,229.42 pounds a
+# month, to the penny). The largest standard allowance is 424.90 pounds, so
+# the largest element is 1,229.42 - 424.90 = 804.52, rounded down to 804 pounds
+# (checked 29 October 2026, legislation.gov.uk). The London limit is higher.
+[inputs.housing_costs_element]
+type = "money"
+min = "0.00"
+max = "804.00"
+controlled_by = ["landlord"]
+checked_by = "documentary_evidence"
+
+# Limited capability for work is a finding of the decision maker, on an
+# assessment (regulation 39 of the Universal Credit Regulations 2013,
+# https://www.legislation.gov.uk/uksi/2013/376/regulation/39: the claimant has
+# LCW if "it has been determined" that they have it).
+[inputs.has_lcw]
+type = "bool"
+controlled_by = ["decision_maker"]
+checked_by = "assessment"
+
+# Judgement point: whether a claim is made after the award ends. Both parties
+# are named because a treated claim is the Secretary of State's discretion
+# (regulation 32A of the Claims and Payments Regulations 2013, "may", up to 5
+# months: reading 2) and a fresh claim is the claimant's own act. Naming
+# decision_maker makes it a judgement point, so the query tries both values.
+# Checked against DWP's records, which show whether and when a claim was made.
+[inputs.claim_after_end]
+type = "bool"
+controlled_by = ["decision_maker", "claimant"]
+checked_by = "dwp_records"
+
+# Judgement point: whether each failed month counts as a claim, which decides
+# how far a surplus is worn down. The two examples in ADM A2050 differ (Example
+# 3 treats a claim only in the month in which entitlement arises, Example 4 in
+# each month), so this is a finding the decision maker makes (reading 3). It
+# matters only if a claim is made after the award ends. Checked against DWP's
+# records of the claims it treated as made.
+[inputs.claim_each_month]
+type = "bool"
+applies_when = "claim_after_end"
+controlled_by = ["decision_maker"]
+checked_by = "dwp_records"
+
+# Judgement point: whether the LCW finding carries over to a new award within
+# 6 months. Regulation 39 sets no such rule. DWP's "Re-claims" staff guide says
+# a determination "remains valid" if the condition has not changed and the
+# review date has not passed (reading 7), so the decision maker may find either
+# way, on assessment. It matters only if the claimant has LCW.
+[inputs.lcw_carries_over]
+type = "bool"
+applies_when = "has_lcw"
+controlled_by = ["decision_maker"]
+checked_by = "assessment"

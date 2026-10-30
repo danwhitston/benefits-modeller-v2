@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 import z3
 
-from bm import evaluate, ir, translate
+from bm import evaluate, ir, solvers, translate
 
 ROOT = Path(__file__).resolve().parent.parent
 UC_IR = ROOT / "build" / "uc.bm-ir.json"
@@ -67,7 +67,7 @@ def output(value):
 
 def document(inputs, definitions, outputs):
     return {
-        "bm_ir_version": 0,
+        "bm_ir_version": 1,
         "catala_version": "1.3.0",
         "scope": "Test",
         "inputs": [{"name": n, "type": t} for n, t in inputs],
@@ -300,3 +300,139 @@ def test_empty_obligation_holds_only_where_reached(tmp_path):
     boundary = days(date(2026, 4, 6))
     assert evaluate.outputs(module, {"start": boundary - 1, "income": 1000}) == {"deduction": 0}
     assert evaluate.outputs(module, {"start": boundary, "income": 1000}) == {"deduction": 550}
+
+
+def rounded(exact: Fraction) -> int:
+    """`exact` rounded to the nearest whole number, halves away from zero."""
+    magnitude = int(abs(exact) + Fraction(1, 2))  # int() truncates towards zero
+    return magnitude if exact >= 0 else -magnitude
+
+
+RATE_MONEY = [0, 1, 5, 6, 122890, 10**6]
+RATE_PENCE = sorted({*RATE_MONEY, *(-m for m in RATE_MONEY)})
+
+
+def rate_module(tmp_path, operator, rate):
+    """A scope with one output, `x = m <operator> rate`, as the rules write it."""
+    doc = document(
+        [("m", "money")],
+        [("x", "money", output(op(operator, var("m"), lit("decimal", rate))))],
+        ["x"],
+    )
+    return translate.translate(load_doc(tmp_path, doc))
+
+
+def assert_both_solvers_give(module, pence, expected):
+    """Z3 and cvc5 each find `x` equal to `expected` at `pence`, and nothing else."""
+    equals = f"(= (|x| {translate.literal('Int', pence)}) {translate.literal('Int', expected)})"
+    for solver in ("z3", "cvc5"):
+        agree = solvers.run(solver, f"{module.text}(assert {equals})\n(check-sat)\n", 10_000)
+        differ = solvers.run(solver, f"{module.text}(assert (not {equals}))\n(check-sat)\n", 10_000)
+        assert (agree.status, differ.status) == ("sat", "unsat"), (solver, pence, expected)
+
+
+def test_mult_by_20_over_11_matches_catala_rounding(tmp_path):
+    module = rate_module(tmp_path, "Mult_mon_rat", "20/11")
+    for pence in RATE_PENCE:
+        assert_both_solvers_give(module, pence, rounded(Fraction(pence) * Fraction(20, 11)))
+
+
+def test_mult_by_11_over_20_ties(tmp_path):
+    module = rate_module(tmp_path, "Mult_mon_rat", "11/20")
+    # 10 x 11/20 = 5.5, 30 x 11/20 = 16.5 and -10 x 11/20 = -5.5: exact half pennies.
+    for pence, expected in [(10, 6), (30, 17), (-10, -6)]:
+        assert rounded(Fraction(pence) * Fraction(11, 20)) == expected
+        assert_both_solvers_give(module, pence, expected)
+    for pence in RATE_PENCE:
+        assert_both_solvers_give(module, pence, rounded(Fraction(pence) * Fraction(11, 20)))
+
+
+def test_div_by_11_over_20_matches_catala_rounding(tmp_path):
+    # The rules write the nil UC threshold as `maximum_amount / 0.55`, which is
+    # a division by the constant 11/20 and not a product with 20/11.
+    module = rate_module(tmp_path, "Div_mon_rat", "11/20")
+    for pence in RATE_PENCE:
+        assert_both_solvers_give(module, pence, rounded(Fraction(pence) / Fraction(11, 20)))
+    # 11 / 0.55 = 20 exactly, and 1 / 0.55 = 1.81..., which rounds up.
+    assert_both_solvers_give(module, 11, 20)
+    assert_both_solvers_give(module, 1, 2)
+
+
+def test_relaxed_has_no_rounding(tmp_path):
+    doc = document(
+        [("m", "money")],
+        [("x", "money", output(op("Mult_mon_rat", var("m"), lit("decimal", "11/20"))))],
+        ["x"],
+    )
+    scope = load_doc(tmp_path, doc)
+    exact = translate.translate(scope)
+    relaxed = translate.translate(scope, relaxed=True)
+    assert (exact.relaxed, relaxed.relaxed) == (False, True)
+    assert relaxed.outputs == {"x": "Real"}
+    assert evaluate.outputs(exact, {"m": 10}) == {"x": 6}
+    assert evaluate.outputs(relaxed, {"m": 10}) == {"x": Fraction(11, 2)}
+    assert evaluate.outputs(relaxed, {"m": -10}) == {"x": Fraction(-11, 2)}
+
+
+def test_relaxed_division_has_no_rounding(tmp_path):
+    scope = load_doc(
+        tmp_path,
+        document(
+            [("m", "money")],
+            [("x", "money", output(op("Div_mon_rat", var("m"), lit("decimal", "11/20"))))],
+            ["x"],
+        ),
+    )
+    relaxed = translate.translate(scope, relaxed=True)
+    assert evaluate.outputs(relaxed, {"m": 1}) == {"x": Fraction(20, 11)}
+
+
+WINDOW_IR = ROOT / "build" / "claim_window.bm-ir.json"
+
+
+def test_relaxed_window_is_real_valued_and_agrees_where_nothing_is_rounded():
+    scope = ir.load(WINDOW_IR)
+    exact = translate.translate(scope)
+    relaxed = translate.translate(scope, relaxed=True)
+    start = days(date(2026, 4, 6))
+    household = {
+        "start_1": start,
+        "start_2": start + 30,
+        "start_3": start + 61,
+        "earnings_1": 0,
+        "earnings_2": 0,
+        "earnings_3": 0,
+        "aged_25_or_over": True,
+        "housing_costs_element": 0,
+        "has_lcw": False,
+        "claim_after_end": False,
+        "claim_each_month": False,
+        "lcw_carries_over": False,
+    }
+    # No earnings, so the relaxed translation has nothing to round differently.
+    got = evaluate.outputs(relaxed, household)
+    want = evaluate.outputs(exact, household)
+    assert got["total_award"] == want["total_award"]
+    assert all(
+        sort == ("Bool" if name.startswith("entitled") else "Real")
+        for name, sort in relaxed.outputs.items()
+    )
+    # The threshold is a quotient, which the relaxed translation leaves exact:
+    # it is within half a penny of the rounded one.
+    assert abs(got["nil_uc_threshold_1"] - want["nil_uc_threshold_1"]) <= Fraction(1, 2)
+
+
+def test_relaxed_window_is_optimised_over_reals():
+    """A relaxed probe runs through the script and the Real objective."""
+    from bm import inputs
+    from bm.household import Script
+
+    scope = ir.load(WINDOW_IR)
+    bounds = inputs.bounds(inputs.load(ROOT / "rules" / "claim_window.inputs.toml", scope))
+    script = Script(translate.translate(scope, relaxed=True), bounds)
+    household = script.instance()
+    result = solvers.optimise_and_confirm(
+        script.lines, household.output("total_award"), "max", 60_000, sort="Real"
+    )
+    # Three periods at the largest maximum amount: 424.90 + 804.00 = 1,228.90.
+    assert (result.status, result.value, result.confirmed) == ("optimal", 3 * 122890, True)

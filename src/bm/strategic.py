@@ -6,8 +6,10 @@ how each input is treated:
 
 - **Judgement points.** An input whose `controlled_by` includes
   `decision_maker`, and which the caller has not fixed, is a judgement point.
-  The query expands the judgement points into every combination of their
-  values, one case per combination, and refuses above a cap (default 8).
+  An input with `applies_when` is fixed False when the point it names is fixed
+  False (`close_fixed`, which every query calls first). The query expands the
+  judgement points into every combination of their values, one case per
+  combination, and refuses above a cap (default 8).
 - **The choice.** `Split(input, periods=2)` makes the input's values in the two
   periods free, subject to a fixed total. The input must be money and its
   `controlled_by` must include `claimant` or `employer`; otherwise the query
@@ -83,9 +85,9 @@ from pathlib import Path
 from typing import Literal
 
 from bm import catala_run, solvers, units
-from bm.household import Instance, Script, smt_sum
-from bm.inputs import InputSpec, bounds
-from bm.translate import SmtModule, literal
+from bm.household import Instance, Script, facts, smt_sum
+from bm.inputs import Bound, InputSpec, bounds
+from bm.translate import RELAXED_REFUSAL, SmtModule, literal
 
 ROOT = Path(__file__).resolve().parents[2]
 RULES = ROOT / "rules" / "uc.catala_en"
@@ -120,7 +122,11 @@ _CHOOSERS = ("claimant", "employer")
 
 
 def judgement_points(specs: dict[str, InputSpec], fixed: dict[str, int | bool]) -> list[str]:
-    """The unfixed inputs the decision maker controls, in scope order."""
+    """The unfixed inputs the decision maker controls, in scope order.
+
+    `fixed` should be the output of `close_fixed`, so that an input whose
+    `applies_when` point is fixed False is itself fixed, and so not a point.
+    """
     return [
         name
         for name, spec in specs.items()
@@ -128,28 +134,71 @@ def judgement_points(specs: dict[str, InputSpec], fixed: dict[str, int | bool]) 
     ]
 
 
+def close_fixed(
+    specs: dict[str, InputSpec], fixed: dict[str, int | bool]
+) -> dict[str, int | bool]:
+    """`fixed`, plus each unfixed input whose `applies_when` point is fixed False, as False.
+
+    An input that applies only when another is true cannot matter once that
+    other is fixed False, so it is fixed False too. If it were left free it
+    would become a free fact in the query, which is wrong. Every query must call
+    this once, at the top, on the caller's fixed values and use the result
+    throughout (for `judgement_points`, `cases` and the facts). A point fixed
+    True leaves its dependants free, and a dependant the caller fixed keeps the
+    caller's value. Returns a new dict. Changes nothing when no spec has an
+    `applies_when`, as for `rules/uc.inputs.toml`.
+    """
+    closed = dict(fixed)
+    for name, spec in specs.items():
+        parent = spec.applies_when
+        if parent is not None and name not in fixed and parent in fixed and not fixed[parent]:
+            closed[name] = False
+    return closed
+
+
 def cases(
     specs: dict[str, InputSpec], points: list[str], cap: int = DEFAULT_CASE_CAP
 ) -> list[dict[str, bool]]:
     """Every combination of the points' values, with True first.
 
-    With no points there is one empty case. Refuses a point that is not a
-    Boolean input, and more than `cap` cases.
+    With no points there is one empty case. A point whose `applies_when` names
+    another of the points is skipped in the combinations where that point is
+    False, and is fixed False there, so each case still gives every point a
+    value. A point whose `applies_when` names an input that is not among the
+    points (the caller fixed it True) is free. Refuses a point that is not a
+    Boolean input, a condition that chains, and more than `cap` cases.
     """
     for point in points:
         spec = specs.get(point)
         if spec is None or spec.type != "bool":
             kind = "not an input" if spec is None else f"a {spec.type} input"
             raise QueryRefused(f"judgement point {point} must be a Boolean input, but is {kind}")
-    count = 2 ** len(points)
+    parents = {
+        point: specs[point].applies_when
+        for point in points
+        if specs[point].applies_when in points
+    }
+    if chained := sorted(set(parents) & set(parents.values())):
+        raise QueryRefused(f"judgement points {chained} have conditions that chain")
+    # A parent with k children gives 1 case when False and 2**k when True.
+    children = {
+        parent: sum(1 for p in parents.values() if p == parent) for parent in set(parents.values())
+    }
+    count = 2 ** (len(points) - len(parents) - len(children))
+    for k in children.values():
+        count *= 1 + 2**k
     if count > cap:
         raise QueryRefused(
             f"{len(points)} judgement points give {count} cases, above the cap of {cap}"
         )
-    return [
-        dict(zip(points, values, strict=True))
-        for values in itertools.product((True, False), repeat=len(points))
-    ]
+    found: dict[tuple[bool, ...], dict[str, bool]] = {}
+    for values in itertools.product((True, False), repeat=len(points)):
+        case = dict(zip(points, values, strict=True))
+        for child, parent in parents.items():
+            if not case[parent]:
+                case[child] = False
+        found.setdefault(tuple(case.values()), case)
+    return list(found.values())
 
 
 def check_choice(specs: dict[str, InputSpec], choice: Split) -> None:
@@ -168,10 +217,10 @@ def check_choice(specs: dict[str, InputSpec], choice: Split) -> None:
         raise QueryRefused(f"only two periods are supported, not {choice.periods}")
 
 
-def period_starts(first: date, specs: dict[str, InputSpec], periods: int = 2) -> list[date]:
+def period_starts(first: date, bound: Bound, periods: int = 2) -> list[date]:
     """The start of each period: the same day of the next month, or its last day.
 
-    Refuses if any start lies outside the bounds of `assessment_period_start`.
+    `bound` is the bound of the start input. Refuses if any start lies outside it.
     """
     starts = [first]
     for _ in range(periods - 1):
@@ -180,7 +229,6 @@ def period_starts(first: date, specs: dict[str, InputSpec], periods: int = 2) ->
         month = month_index + 1
         day = min(first.day, calendar.monthrange(year, month)[1])
         starts.append(date(year, month, day))
-    bound = specs["assessment_period_start"].bound
     for start in starts:
         if not bound.min <= units.days(start) <= bound.max:
             raise QueryRefused(
@@ -257,9 +305,12 @@ def timing(
     Raises `QueryRefused` for a query it cannot answer, `NoHousehold` if no
     split keeps every award above nil, `SolverDisagreement` if cvc5 finds a
     better gain than Z3's optimum, and `ReplayMismatch` if Catala's award at a
-    witness differs from Z3's.
+    witness differs from Z3's. `QueryRefused` also covers a relaxed module,
+    which is not the rules.
     """
-    fixed = dict(fixed or {})
+    if module.relaxed:
+        raise QueryRefused(f"timing cannot be answered: {RELAXED_REFUSAL}")
+    fixed = close_fixed(specs, fixed or {})
     check_choice(specs, choice)
     for name in fixed:
         if name not in specs:
@@ -270,7 +321,7 @@ def timing(
             raise QueryRefused(f"{name} is set by the first period's start, not fixed")
     points = judgement_points(specs, fixed)
     all_cases = cases(specs, points, cap)
-    starts = [units.days(d) for d in period_starts(first_start, specs)]
+    starts = [units.days(d) for d in period_starts(first_start, specs[START].bound)]
 
     def optimise(numbered: list[tuple[int, dict[str, bool]]], what: str):
         script, households, gains = _script(module, specs, choice, fixed, total, starts, numbered)
@@ -381,7 +432,7 @@ def _script(
     """The timing script for the numbered cases, its households and each case's gain."""
     script = Script(module, bounds(specs))
     points = {name for _, case in numbered for name in case}
-    facts = _facts(script, specs, fixed, {choice.input, START, *points})
+    shared = facts(script, specs, fixed, {choice.input, START, *points})
 
     first = script.declare("choice.1", "Int")
     script.bound(first, specs[choice.input].bound)
@@ -402,7 +453,7 @@ def _script(
             for kind in ("split", "baseline"):
                 prefix = f"c{c}.p{p}.{kind}"
                 equal = {
-                    **facts,
+                    **shared,
                     START: literal("Int", start),
                     choice.input: amounts[kind, p],
                     **{name: literal("Bool", value) for name, value in case.items()},
@@ -414,22 +465,6 @@ def _script(
                 awards[kind].append(award)
         gains.append(f"(- {smt_sum(awards['split'])} {smt_sum(awards['baseline'])})")
     return script, households, gains
-
-
-def _facts(
-    script: Script, specs: dict[str, InputSpec], fixed: dict[str, int | bool], skip: set[str]
-) -> dict[str, str]:
-    """Declare `fact.<name>` for each input not in `skip`: fixed, or free within its bound."""
-    facts = {}
-    for name, spec in specs.items():
-        if name in skip:
-            continue
-        sort = script.sorts[name]
-        value = literal(sort, fixed[name]) if name in fixed else None
-        facts[name] = script.declare(f"fact.{name}", sort, value)
-        if spec.bound is not None:
-            script.bound(facts[name], spec.bound)
-    return facts
 
 
 def _witnesses(households: list[_Household], model: solvers.Model) -> list[Witness]:
@@ -508,8 +543,11 @@ def judgement_value(
     `NoHousehold` if no household keeps both awards above nil,
     `SolverDisagreement` if cvc5 finds a better value than Z3's optimum, and
     `ReplayMismatch` if Catala's award at a witness differs from Z3's.
+    `QueryRefused` also covers a relaxed module, which is not the rules.
     """
-    fixed = dict(fixed or {})
+    if module.relaxed:
+        raise QueryRefused(f"judgement_value cannot be answered: {RELAXED_REFUSAL}")
+    fixed = close_fixed(specs, fixed or {})
     for name in fixed:
         if name not in specs:
             raise QueryRefused(f"{name} is not an input, so it cannot be fixed")
@@ -521,15 +559,15 @@ def judgement_value(
         reason = "not an input" if point not in specs else "not controlled by the decision maker"
         raise QueryRefused(f"{point} is {reason}, so it is not a judgement point")
     cases(specs, [point])  # refuses a point that is not Boolean
-    (start_day,) = (units.days(d) for d in period_starts(start, specs, periods=1))
+    (start_day,) = (units.days(d) for d in period_starts(start, specs[START].bound, periods=1))
 
     script = Script(module, bounds(specs))
-    facts = _facts(script, specs, fixed, {START, point})
+    shared = facts(script, specs, fixed, {START, point})
     households = []
     awards = []
     for value in (True, False):
         kind = "yes" if value else "no"
-        equal = {**facts, START: literal("Int", start_day), point: literal("Bool", value)}
+        equal = {**shared, START: literal("Int", start_day), point: literal("Bool", value)}
         instance = script.instance(kind, equal=equal)
         award = script.declare(f"bm.award.{kind}", "Int", instance.output(AWARD))
         script.add(f"(assert (> {award} 0))")

@@ -1,4 +1,4 @@
-# Fixture: a list literal, which bm-ir v0 does not support
+# Fixture: a list literal, which bm-ir does not support
 
 ```catala
 declaration scope Unsupported:

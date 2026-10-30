@@ -30,8 +30,8 @@ A script for two households, the second earning 100 pence more:
 
 from dataclasses import dataclass, field
 
-from bm.inputs import Bound
-from bm.translate import SORTS, SmtModule, apply, literal, quote
+from bm.inputs import Bound, InputSpec
+from bm.translate import SmtModule, apply, literal, quote
 
 
 def smt_sum(terms: list[str]) -> str:
@@ -85,12 +85,13 @@ class Script:
 
     def __init__(self, module: SmtModule, bounds: dict[str, Bound] | None = None):
         self.module = module
-        self.sorts = {v.name: SORTS[v.type] for v in module.inputs}
+        self.sorts = module.sorts
         self.bounds = dict(bounds or {})
         if unknown := sorted(set(self.bounds) - set(self.sorts)):
             raise ValueError(f"bounds for unknown inputs {unknown}")
         for name in self.bounds:
-            if self.sorts[name] != "Int":
+            # Real inputs take a bound only in a relaxed module (a probe).
+            if self.sorts[name] != "Int" and not (module.relaxed and self.sorts[name] == "Real"):
                 raise ValueError(f"{name} is {self.sorts[name]}, which takes no bound")
         self._prefixes: set[str] = set()
         self._declared: set[str] = set()
@@ -112,11 +113,14 @@ class Script:
         to SMT terms, typically over another instance's constants. Each input
         still has its own constant. Bounded inputs are kept within the script's
         bounds. When `defined` is true, no obligation holds at the household.
-        Raises `ValueError` for a prefix already used, or an unknown input.
+        Raises `ValueError` for a prefix already used, an unknown input, or an
+        input that is in both `fixed` and `equal`.
         """
         if prefix in self._prefixes:
             raise ValueError(f"prefix {prefix!r} is already used in this script")
         fixed, equal = fixed or {}, equal or {}
+        if both := sorted(set(fixed) & set(equal)):
+            raise ValueError(f"inputs both fixed and made equal to a term: {both}")
         for given in (fixed, equal):
             if unknown := sorted(set(given) - set(self.sorts)):
                 raise ValueError(f"values for unknown inputs {unknown}")
@@ -130,7 +134,7 @@ class Script:
         for name, term in equal.items():
             self.add(f"(assert (= {inputs[name]} {term}))")
         for name, bound in self.bounds.items():
-            self.bound(inputs[name], bound)
+            self.bound(inputs[name], bound, self.sorts[name])
         instance = Instance(prefix, inputs, self.module)
         if defined:
             for i in range(len(self.module.obligations)):
@@ -140,10 +144,14 @@ class Script:
     def declare(self, name: str, sort: str, term: str | None = None) -> str:
         """Declare a constant, equal to `term` if given, and return it quoted.
 
-        Raises `ValueError` if the name is already declared in this script.
+        Raises `ValueError` if the name is already declared in this script, or
+        is the name of one of the module's functions (or its `.defined`
+        companion), which a constant of that name would shadow.
         """
         if name in self._declared:
             raise ValueError(f"{name} is already declared in this script")
+        if name.removesuffix(".defined") in self.module.functions:
+            raise ValueError(f"{name} is the name of a function of the module")
         self._declared.add(name)
         const = quote(name)
         self.add(f"(declare-const {const} {sort})")
@@ -151,9 +159,9 @@ class Script:
             self.add(f"(assert (= {const} {term}))")
         return const
 
-    def bound(self, term: str, bound: Bound) -> None:
-        """Assert that `term` lies within `bound`, inclusive."""
-        lo, hi = literal("Int", bound.min), literal("Int", bound.max)
+    def bound(self, term: str, bound: Bound, sort: str = "Int") -> None:
+        """Assert that `term` (of `sort`, Int or Real) lies within `bound`, inclusive."""
+        lo, hi = literal(sort, bound.min), literal(sort, bound.max)
         self.add(f"(assert (<= {lo} {term} {hi}))")
 
     def add(self, line: str) -> None:
@@ -162,3 +170,23 @@ class Script:
     def text(self, *extra: str) -> str:
         """The script: every line, then `extra`, then `(check-sat)`."""
         return "\n".join([*self.lines, *extra, "(check-sat)"]) + "\n"
+
+
+def facts(
+    script: Script, specs: dict[str, InputSpec], fixed: dict[str, int | bool], skip: set[str]
+) -> dict[str, str]:
+    """Declare `fact.<name>` for each input not in `skip`: fixed, or free within its bound.
+
+    Returns each input's quoted constant, for `Script.instance(equal=...)`, so
+    that every household of a query shares the same facts.
+    """
+    shared = {}
+    for name, spec in specs.items():
+        if name in skip:
+            continue
+        sort = script.sorts[name]
+        value = literal(sort, fixed[name]) if name in fixed else None
+        shared[name] = script.declare(f"fact.{name}", sort, value)
+        if spec.bound is not None:
+            script.bound(shared[name], spec.bound, sort)
+    return shared

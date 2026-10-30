@@ -340,3 +340,456 @@ scope TestHousingOnePenny:
   assertion (computation.maximum_amount = $424.91)
   assertion (computation.award = $109.76)
 ```
+
+# Tests for the window rules
+
+The cases below call `ClaimWindow` and `WindowStep`. Unless a case says
+otherwise, the window's assessment periods start on 6 April, 6 May and 6 June
+2026.
+
+Household H is aged 25 or over, has limited capability for work and has a
+housing costs element of £804.00. Its maximum amount is 424.90 + 804.00 =
+1,228.90, and its work allowance is the lower one, 427.00. Its nil UC threshold
+is 1,228.90 x 100/55 = 2,234.3636..., which rounds to 2,234.36, plus 427.00:
+2,661.36. Its relevant threshold, for a period beginning on or before 31 March
+2027, adds 2,500.00: 5,161.36.
+
+"All true" means that `claim_after_end`, `claim_each_month` and
+`lcw_carries_over` all hold.
+
+## Window: household H, earnings even
+
+```catala
+#[test]
+declaration scope TestWindowEven:
+  output computation content Uc.ClaimWindow
+
+scope TestWindowEven:
+  # Each period: 2,600.00 - 427.00 = 2,173.00; 55% x 2,173.00 = 1,195.15.
+  # 1,228.90 - 1,195.15 = 33.75, three times: 101.25.
+  definition computation equals
+    output of Uc.ClaimWindow with {
+      -- start_1: |2026-04-06|
+      -- start_2: |2026-05-06|
+      -- start_3: |2026-06-06|
+      -- earnings_1: $2,600.00
+      -- earnings_2: $2,600.00
+      -- earnings_3: $2,600.00
+      -- aged_25_or_over: true
+      -- housing_costs_element: $804.00
+      -- has_lcw: true
+      -- claim_after_end: true
+      -- claim_each_month: true
+      -- lcw_carries_over: true
+    }
+  assertion (computation.nil_uc_threshold_1 = $2,661.36)
+  assertion (computation.relevant_threshold_1 = $5,161.36)
+  assertion (computation.award_1 = $33.75)
+  assertion (computation.award_2 = $33.75)
+  assertion (computation.award_3 = $33.75)
+  assertion (computation.entitled_3)
+  assertion (computation.total_award = $101.25)
+```
+
+## Window: household H, the nil period last
+
+```catala
+#[test]
+declaration scope TestWindowNilLast:
+  output computation content Uc.ClaimWindow
+
+scope TestWindowNilLast:
+  # Periods 1 and 2: no earnings, so the award is the maximum amount, 1,228.90.
+  # Period 3: 7,800.00 - 427.00 = 7,373.00; 55% x 7,373.00 = 4,055.15, which
+  # is more than 1,228.90, so the award is nil and ends.
+  # Original surplus: 7,800.00 - 5,161.36 = 2,638.64.
+  # Total: 1,228.90 + 1,228.90 + 0.00 = 2,457.80.
+  definition computation equals
+    output of Uc.ClaimWindow with {
+      -- start_1: |2026-04-06|
+      -- start_2: |2026-05-06|
+      -- start_3: |2026-06-06|
+      -- earnings_1: $0.00
+      -- earnings_2: $0.00
+      -- earnings_3: $7,800.00
+      -- aged_25_or_over: true
+      -- housing_costs_element: $804.00
+      -- has_lcw: true
+      -- claim_after_end: true
+      -- claim_each_month: true
+      -- lcw_carries_over: true
+    }
+  assertion (computation.award_1 = $1,228.90)
+  assertion (computation.award_2 = $1,228.90)
+  assertion (computation.award_3 = $0.00)
+  assertion (not computation.entitled_3)
+  assertion (computation.surplus_after_3 = $2,638.64)
+  assertion (computation.total_award = $2,457.80)
+```
+
+## Window: household H, a reclaim with surplus earnings
+
+```catala
+#[test]
+declaration scope TestWindowReclaim:
+  output computation content Uc.ClaimWindow
+
+scope TestWindowReclaim:
+  # Period 1: nil, as above; original surplus 7,800.00 - 5,161.36 = 2,638.64.
+  # Period 2, the first claim: 2,000.00 + 2,638.64 = 4,638.64 used.
+  # 4,638.64 - 427.00 = 4,211.64; 55% x 4,211.64 = 2,316.402, which rounds to
+  # 2,316.40, more than 1,228.90, so the claim fails. Adjusted surplus:
+  # 4,638.64 - 5,161.36 is below zero, so 0.00.
+  # Period 3, the second claim: 2,000.00 + 0.00 used. 2,000.00 - 427.00 =
+  # 1,573.00; 55% x 1,573.00 = 865.15; 1,228.90 - 865.15 = 363.75.
+  definition computation equals
+    output of Uc.ClaimWindow with {
+      -- start_1: |2026-04-06|
+      -- start_2: |2026-05-06|
+      -- start_3: |2026-06-06|
+      -- earnings_1: $7,800.00
+      -- earnings_2: $2,000.00
+      -- earnings_3: $2,000.00
+      -- aged_25_or_over: true
+      -- housing_costs_element: $804.00
+      -- has_lcw: true
+      -- claim_after_end: true
+      -- claim_each_month: true
+      -- lcw_carries_over: true
+    }
+  assertion (computation.award_1 = $0.00)
+  assertion (computation.surplus_after_1 = $2,638.64)
+  assertion (computation.earnings_used_2 = $4,638.64)
+  assertion (computation.award_2 = $0.00)
+  assertion (not computation.entitled_2)
+  assertion (computation.surplus_after_2 = $0.00)
+  assertion (computation.earnings_used_3 = $2,000.00)
+  assertion (computation.award_3 = $363.75)
+  assertion (computation.entitled_3)
+  assertion (computation.surplus_after_3 = $0.00)
+  assertion (computation.total_award = $363.75)
+```
+
+## Window: household H, a failed month that is not a claim
+
+```catala
+#[test]
+declaration scope TestWindowFailedMonthNotClaim:
+  output computation content Uc.ClaimWindow
+
+scope TestWindowFailedMonthNotClaim:
+  # As the reclaim case, but a month in which the claim fails does not count
+  # as a claim, so the surplus is not worn down: it stays 2,638.64.
+  # Period 3: 2,000.00 + 2,638.64 = 4,638.64 used, which fails as period 2 did.
+  definition computation equals
+    output of Uc.ClaimWindow with {
+      -- start_1: |2026-04-06|
+      -- start_2: |2026-05-06|
+      -- start_3: |2026-06-06|
+      -- earnings_1: $7,800.00
+      -- earnings_2: $2,000.00
+      -- earnings_3: $2,000.00
+      -- aged_25_or_over: true
+      -- housing_costs_element: $804.00
+      -- has_lcw: true
+      -- claim_after_end: true
+      -- claim_each_month: false
+      -- lcw_carries_over: true
+    }
+  assertion (computation.surplus_after_2 = $2,638.64)
+  assertion (computation.earnings_used_3 = $4,638.64)
+  assertion (computation.award_3 = $0.00)
+  assertion (computation.surplus_after_3 = $2,638.64)
+  assertion (computation.total_award = $0.00)
+```
+
+## Window: household H, a claim that succeeds with a surplus
+
+```catala
+#[test]
+declaration scope TestWindowClaimSucceedsWithSurplus:
+  output computation content Uc.ClaimWindow
+
+scope TestWindowClaimSucceedsWithSurplus:
+  # Period 1: nil, as in the reclaim case; original surplus 2,638.64.
+  # Period 2, the first claim: 0.00 + 2,638.64 = 2,638.64 used.
+  # 2,638.64 - 427.00 = 2,211.64; 55% x 2,211.64 = 1,216.402, which rounds to
+  # 1,216.40; 1,228.90 - 1,216.40 = 12.50. The claim succeeds, so the surplus
+  # is used up: 0.00 carries on, although a failed month would not count as a
+  # claim here.
+  # Period 3: the new award continues with no earnings: 1,228.90.
+  definition computation equals
+    output of Uc.ClaimWindow with {
+      -- start_1: |2026-04-06|
+      -- start_2: |2026-05-06|
+      -- start_3: |2026-06-06|
+      -- earnings_1: $7,800.00
+      -- earnings_2: $0.00
+      -- earnings_3: $0.00
+      -- aged_25_or_over: true
+      -- housing_costs_element: $804.00
+      -- has_lcw: true
+      -- claim_after_end: true
+      -- claim_each_month: false
+      -- lcw_carries_over: true
+    }
+  assertion (computation.surplus_after_1 = $2,638.64)
+  assertion (computation.earnings_used_2 = $2,638.64)
+  assertion (computation.award_2 = $12.50)
+  assertion (computation.entitled_2)
+  assertion (computation.surplus_after_2 = $0.00)
+  assertion (computation.earnings_used_3 = $0.00)
+  assertion (computation.award_3 = $1,228.90)
+  assertion (computation.total_award = $1,241.40)
+```
+
+## Window: household H, no claim after the end
+
+```catala
+#[test]
+declaration scope TestWindowNoClaim:
+  output computation content Uc.ClaimWindow
+
+scope TestWindowNoClaim:
+  # As the reclaim case, but no claim is made after the award ends. Nothing is
+  # paid, and the original surplus of 2,638.64 is carried unchanged.
+  definition computation equals
+    output of Uc.ClaimWindow with {
+      -- start_1: |2026-04-06|
+      -- start_2: |2026-05-06|
+      -- start_3: |2026-06-06|
+      -- earnings_1: $7,800.00
+      -- earnings_2: $2,000.00
+      -- earnings_3: $2,000.00
+      -- aged_25_or_over: true
+      -- housing_costs_element: $804.00
+      -- has_lcw: true
+      -- claim_after_end: false
+      -- claim_each_month: true
+      -- lcw_carries_over: true
+    }
+  assertion (computation.earnings_used_2 = $2,000.00)
+  assertion (computation.award_2 = $0.00)
+  assertion (computation.award_3 = $0.00)
+  assertion (computation.surplus_after_2 = $2,638.64)
+  assertion (computation.surplus_after_3 = $2,638.64)
+  assertion (computation.total_award = $0.00)
+```
+
+## Window: household H, the LCW finding lost
+
+```catala
+#[test]
+declaration scope TestWindowLcwLost:
+  output computation content Uc.ClaimWindow
+
+scope TestWindowLcwLost:
+  # As the reclaim case, but the LCW finding does not carry over, so after the
+  # end no work allowance applies.
+  # Period 2: 4,638.64 used; 55% x 4,638.64 = 2,551.252, which rounds to
+  # 2,551.25, so the claim fails. Without the work allowance the nil UC
+  # threshold is 2,234.36 and the relevant threshold 4,734.36, so the adjusted
+  # surplus is 0.00.
+  # Period 3: 55% x 2,000.00 = 1,100.00; 1,228.90 - 1,100.00 = 128.90.
+  definition computation equals
+    output of Uc.ClaimWindow with {
+      -- start_1: |2026-04-06|
+      -- start_2: |2026-05-06|
+      -- start_3: |2026-06-06|
+      -- earnings_1: $7,800.00
+      -- earnings_2: $2,000.00
+      -- earnings_3: $2,000.00
+      -- aged_25_or_over: true
+      -- housing_costs_element: $804.00
+      -- has_lcw: true
+      -- claim_after_end: true
+      -- claim_each_month: true
+      -- lcw_carries_over: false
+    }
+  assertion (computation.relevant_threshold_2 = $4,734.36)
+  assertion (computation.award_2 = $0.00)
+  assertion (computation.surplus_after_2 = $0.00)
+  assertion (computation.award_3 = $128.90)
+```
+
+## Window: household H, the LCW finding stays lost in the new award
+
+```catala
+#[test]
+declaration scope TestWindowLcwStaysLost:
+  output computation content Uc.ClaimWindow
+
+scope TestWindowLcwStaysLost:
+  # Period 1: 6,000.00 - 427.00 = 5,573.00; 55% x 5,573.00 = 3,065.15, more
+  # than 1,228.90, so the award is nil and ends. Original surplus:
+  # 6,000.00 - 5,161.36 = 838.64.
+  # Period 2, the first claim: 0.00 + 838.64 = 838.64 used. The LCW finding
+  # does not carry over, so no work allowance applies: 55% x 838.64 =
+  # 461.252, which rounds to 461.25; 1,228.90 - 461.25 = 767.65. The claim
+  # succeeds. The nil UC threshold without the work allowance is 2,234.36.
+  # Period 3: the new award continues, still without the LCW finding, so
+  # still no work allowance: 55% x 1,000.00 = 550.00; 1,228.90 - 550.00 =
+  # 678.90. With the finding back it would be 1,228.90 - 55% x 573.00 =
+  # 913.75.
+  # Total: 767.65 + 678.90 = 1,446.55.
+  definition computation equals
+    output of Uc.ClaimWindow with {
+      -- start_1: |2026-04-06|
+      -- start_2: |2026-05-06|
+      -- start_3: |2026-06-06|
+      -- earnings_1: $6,000.00
+      -- earnings_2: $0.00
+      -- earnings_3: $1,000.00
+      -- aged_25_or_over: true
+      -- housing_costs_element: $804.00
+      -- has_lcw: true
+      -- claim_after_end: true
+      -- claim_each_month: true
+      -- lcw_carries_over: false
+    }
+  assertion (computation.award_1 = $0.00)
+  assertion (computation.surplus_after_1 = $838.64)
+  assertion (computation.earnings_used_2 = $838.64)
+  assertion (computation.nil_uc_threshold_2 = $2,234.36)
+  assertion (computation.award_2 = $767.65)
+  assertion (computation.entitled_2)
+  assertion (computation.nil_uc_threshold_3 = $2,234.36)
+  assertion (computation.award_3 = $678.90)
+  assertion (computation.total_award = $1,446.55)
+```
+
+## Window: the award ends twice
+
+```catala
+#[test]
+declaration scope TestWindowEndsTwice:
+  output computation content Uc.ClaimWindow
+
+scope TestWindowEndsTwice:
+  # Aged 25 or over, no LCW, no housing costs element: the maximum amount is
+  # 424.90 and no work allowance applies. Nil UC threshold: 424.90 x 100/55 =
+  # 772.5454..., which rounds to 772.55. Relevant threshold: 3,272.55.
+  # Period 1: 55% x 3,000.00 = 1,650.00, so the award is nil and ends. The
+  # earnings are below the relevant threshold, so there is no surplus.
+  # Period 2: a claim, with no earnings: 424.90.
+  # Period 3: the new award ends again, as period 1 did.
+  definition computation equals
+    output of Uc.ClaimWindow with {
+      -- start_1: |2026-04-06|
+      -- start_2: |2026-05-06|
+      -- start_3: |2026-06-06|
+      -- earnings_1: $3,000.00
+      -- earnings_2: $0.00
+      -- earnings_3: $3,000.00
+      -- aged_25_or_over: true
+      -- housing_costs_element: $0.00
+      -- has_lcw: false
+      -- claim_after_end: true
+      -- claim_each_month: true
+      -- lcw_carries_over: true
+    }
+  assertion (computation.nil_uc_threshold_1 = $772.55)
+  assertion (computation.relevant_threshold_1 = $3,272.55)
+  assertion (computation.award_1 = $0.00)
+  assertion (computation.surplus_after_1 = $0.00)
+  assertion (computation.award_2 = $424.90)
+  assertion (computation.entitled_2)
+  assertion (computation.award_3 = $0.00)
+  assertion (not computation.entitled_3)
+  assertion (computation.total_award = $424.90)
+```
+
+## Step: the £300 threshold after 31 March 2027
+
+```catala
+#[test]
+declaration scope TestStepThreshold300:
+  output computation content Uc.WindowStep
+
+scope TestStepThreshold300:
+  # Nil UC threshold, as in the case above: 772.55. A period beginning on
+  # 1 April 2027 takes 300.00: 1,072.55. The award ends, and the original
+  # surplus is 3,000.00 - 1,072.55 = 1,927.45.
+  definition computation equals
+    output of Uc.WindowStep with {
+      -- live: true
+      -- surplus: $0.00
+      -- months_since_end: 0
+      -- start: |2027-04-01|
+      -- earnings: $3,000.00
+      -- aged_25_or_over: true
+      -- housing_costs_element: $0.00
+      -- lcw: false
+      -- claim_after_end: true
+      -- claim_each_month: true
+      -- lcw_carries_over: true
+    }
+  assertion (computation.nil_uc_threshold = $772.55)
+  assertion (computation.relevant_threshold = $1,072.55)
+  assertion (computation.award = $0.00)
+  assertion (not computation.entitled)
+  assertion (not computation.live_next)
+  assertion (computation.months_since_end_next = 1)
+  assertion (computation.surplus_next = $1,927.45)
+```
+
+## Step: the £2,500 threshold on 31 March 2027
+
+```catala
+#[test]
+declaration scope TestStepThreshold2500:
+  output computation content Uc.WindowStep
+
+scope TestStepThreshold2500:
+  # As above, but the period begins on 31 March 2027, so the relevant
+  # threshold is 772.55 + 2,500.00 = 3,272.55. The earnings are below it, so
+  # there is no surplus.
+  definition computation equals
+    output of Uc.WindowStep with {
+      -- live: true
+      -- surplus: $0.00
+      -- months_since_end: 0
+      -- start: |2027-03-31|
+      -- earnings: $3,000.00
+      -- aged_25_or_over: true
+      -- housing_costs_element: $0.00
+      -- lcw: false
+      -- claim_after_end: true
+      -- claim_each_month: true
+      -- lcw_carries_over: true
+    }
+  assertion (computation.relevant_threshold = $3,272.55)
+  assertion (computation.surplus_next = $0.00)
+```
+
+## Step: the sixth month after the end
+
+```catala
+#[test]
+declaration scope TestStepSixthMonth:
+  output computation content Uc.WindowStep
+
+scope TestStepSixthMonth:
+  # Six months after the end, no claim can be treated as made, so nothing is
+  # paid, even with no earnings, and the surplus carried in is unchanged.
+  definition computation equals
+    output of Uc.WindowStep with {
+      -- live: false
+      -- surplus: $100.00
+      -- months_since_end: 6
+      -- start: |2026-10-06|
+      -- earnings: $0.00
+      -- aged_25_or_over: true
+      -- housing_costs_element: $0.00
+      -- lcw: false
+      -- claim_after_end: true
+      -- claim_each_month: true
+      -- lcw_carries_over: true
+    }
+  assertion (computation.earnings_used = $0.00)
+  assertion (computation.award = $0.00)
+  assertion (not computation.entitled)
+  assertion (not computation.live_next)
+  assertion (computation.surplus_next = $100.00)
+  assertion (computation.months_since_end_next = 7)
+```

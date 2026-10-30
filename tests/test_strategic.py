@@ -12,6 +12,7 @@ from bm.household import Script, smt_sum
 from bm.strategic import (
     DEFAULT_START,
     RULES,
+    START,
     JudgementResult,
     NoHousehold,
     QueryRefused,
@@ -20,6 +21,7 @@ from bm.strategic import (
     TimingResult,
     cases,
     check_choice,
+    close_fixed,
     judgement_points,
     judgement_value,
     period_starts,
@@ -31,6 +33,9 @@ from bm.translate import apply, literal, quote
 ROOT = Path(__file__).resolve().parent.parent
 SCOPE = ir.load(ROOT / "build" / "uc.bm-ir.json")
 SPECS = inputs.load(ROOT / "rules" / "uc.inputs.toml", SCOPE)
+WINDOW_SPECS = inputs.load(
+    ROOT / "rules" / "claim_window.inputs.toml", ir.load(ROOT / "build" / "claim_window.bm-ir.json")
+)
 
 # Fixed households (aged 25 or over, housing costs element in pence) and totals
 # of earned income in pence over the two periods, for the brute-force check.
@@ -66,6 +71,92 @@ def test_cases():
         cases(SPECS, ["has_lcw"], cap=1)
 
 
+def test_window_judgement_points():
+    assert judgement_points(WINDOW_SPECS, {}) == [
+        "has_lcw",
+        "claim_after_end",
+        "claim_each_month",
+        "lcw_carries_over",
+    ]
+
+
+def test_window_cases_are_nine():
+    specs = WINDOW_SPECS
+    all_cases = cases(specs, judgement_points(specs, {}), cap=12)
+    assert len(all_cases) == 9
+    assert all_cases[0] == {k: True for k in all_cases[0]}  # True first
+    assert len({tuple(sorted(c.items())) for c in all_cases}) == 9
+    for case in all_cases:
+        assert set(case) == set(judgement_points(specs, {}))
+        if not case["claim_after_end"]:
+            assert case["claim_each_month"] is False
+        if not case["has_lcw"]:
+            assert case["lcw_carries_over"] is False
+
+
+def test_window_cases_refused_above_the_cap():
+    with pytest.raises(QueryRefused, match="9 cases, above the cap of 8"):
+        cases(WINDOW_SPECS, judgement_points(WINDOW_SPECS, {}), cap=8)
+
+
+def test_fixing_has_lcw_false_leaves_three_cases():
+    # close_fixed also fixes lcw_carries_over False, so it is no longer a point.
+    specs = WINDOW_SPECS
+    fixed = close_fixed(specs, {"has_lcw": False})
+    assert fixed == {"has_lcw": False, "lcw_carries_over": False}
+    points = judgement_points(specs, fixed)
+    assert points == ["claim_after_end", "claim_each_month"]
+    assert len(cases(specs, points, cap=12)) == 3
+
+
+def test_fixing_has_lcw_true_keeps_the_child_a_point():
+    specs = WINDOW_SPECS
+    fixed = close_fixed(specs, {"has_lcw": True})
+    assert fixed == {"has_lcw": True}
+    points = judgement_points(specs, fixed)
+    assert points == ["claim_after_end", "claim_each_month", "lcw_carries_over"]
+    assert len(cases(specs, points, cap=12)) == 6
+
+
+def test_fixing_claim_after_end_false_removes_claim_each_month():
+    specs = WINDOW_SPECS
+    fixed = close_fixed(specs, {"claim_after_end": False})
+    assert fixed == {"claim_after_end": False, "claim_each_month": False}
+    points = judgement_points(specs, fixed)
+    assert points == ["has_lcw", "lcw_carries_over"]
+    assert len(cases(specs, points, cap=12)) == 3
+
+
+def test_fixing_a_child_directly_leaves_the_parent():
+    specs = WINDOW_SPECS
+    fixed = close_fixed(specs, {"lcw_carries_over": True})
+    assert fixed == {"lcw_carries_over": True}
+    points = judgement_points(specs, fixed)
+    assert points == ["has_lcw", "claim_after_end", "claim_each_month"]
+    assert len(cases(specs, points, cap=12)) == 6
+
+
+def test_close_fixed_leaves_a_fixed_child_alone():
+    fixed = {"has_lcw": False, "lcw_carries_over": True}
+    assert close_fixed(WINDOW_SPECS, fixed) == fixed
+
+
+def test_close_fixed_treats_a_falsy_zero_as_false():
+    assert close_fixed(WINDOW_SPECS, {"has_lcw": 0})["lcw_carries_over"] is False
+
+
+def test_close_fixed_does_not_change_its_argument():
+    fixed = {"has_lcw": False}
+    close_fixed(WINDOW_SPECS, fixed)
+    assert fixed == {"has_lcw": False}
+
+
+def test_close_fixed_is_the_identity_for_milestone_2():
+    fixed = {"has_lcw": False}
+    assert close_fixed(SPECS, fixed) == fixed
+    assert close_fixed(SPECS, {}) == {}
+
+
 def test_cases_refuse_a_point_that_is_not_boolean():
     with pytest.raises(QueryRefused, match="earned_income"):
         cases(SPECS, ["earned_income"])
@@ -83,22 +174,35 @@ def test_check_choice():
             check_choice(SPECS, bad)
 
 
+BOUND = SPECS[START].bound
+
+
 def test_period_starts():
-    assert period_starts(date(2026, 4, 6), SPECS) == [date(2026, 4, 6), date(2026, 5, 6)]
+    assert period_starts(date(2026, 4, 6), BOUND) == [date(2026, 4, 6), date(2026, 5, 6)]
+
+
+def test_period_starts_three_periods_over_new_year():
+    assert period_starts(date(2026, 12, 15), BOUND, periods=3) == [
+        date(2026, 12, 15), date(2027, 1, 15), date(2027, 2, 15)]
+
+
+def test_period_starts_from_the_31st():
+    assert period_starts(date(2027, 1, 31), BOUND, periods=3) == [
+        date(2027, 1, 31), date(2027, 2, 28), date(2027, 3, 31)]
 
 
 def test_period_starts_from_the_31st_use_the_last_day_of_the_next_month():
-    assert period_starts(date(2027, 1, 31), SPECS) == [date(2027, 1, 31), date(2027, 2, 28)]
+    assert period_starts(date(2027, 1, 31), BOUND) == [date(2027, 1, 31), date(2027, 2, 28)]
 
 
 def test_period_starts_refuse_a_second_period_outside_the_bounds():
     with pytest.raises(QueryRefused, match="2027-04-10"):
-        period_starts(date(2027, 3, 10), SPECS)
+        period_starts(date(2027, 3, 10), BOUND)
 
 
 def test_period_starts_refuse_a_first_period_before_the_bounds():
     with pytest.raises(QueryRefused, match="2026-04-05"):
-        period_starts(date(2026, 4, 5), SPECS)
+        period_starts(date(2026, 4, 5), BOUND)
 
 
 def _money(text: str) -> int:
@@ -107,10 +211,15 @@ def _money(text: str) -> int:
 
 
 def _catala_award_tests() -> list[tuple[str, dict[str, str], int]]:
-    """Each Catala test scope's name, its inputs as written, and its asserted award."""
+    """Each Catala test of UniversalCredit: its name, inputs as written and asserted award.
+
+    The tests of the window scopes are skipped; they have no single award.
+    """
     text = (ROOT / "rules" / "uc_tests.catala_en").read_text()
     table = []
     for block in text.split("#[test]")[1:]:
+        if "output computation content Uc.UniversalCredit\n" not in block:
+            continue
         name = re.search(r"declaration scope (\w+)", block)[1]
         given = dict(re.findall(r"-- (\w+): (\S+)", block))
         award = re.search(r"assertion \(computation\.award = (\$[\d,.]+)\)", block)
@@ -184,7 +293,7 @@ def test_timing_gain_never_negative():
     for _, status, gain in result.per_case:
         assert status == "optimal"
         assert gain >= result.gain
-    assert result.starts == [units.days(d) for d in period_starts(DEFAULT_START, SPECS)]
+    assert result.starts == [units.days(d) for d in period_starts(DEFAULT_START, BOUND)]
 
     # Two cases, two periods, a split and a baseline: eight households.
     assert len(result.witnesses) == 8
@@ -243,7 +352,7 @@ def _forall_script(
     for e in (e1, e2):
         script.bound(e, SPECS["earned_income"].bound)
     baseline = (literal("Int", total // 2), literal("Int", total - total // 2))
-    starts = [literal("Int", units.days(d)) for d in period_starts(DEFAULT_START, SPECS)]
+    starts = [literal("Int", units.days(d)) for d in period_starts(DEFAULT_START, BOUND)]
     j = quote("test.j")
     awards: dict[str, list[str]] = {"split": [], "baseline": []}
     above_nil = []
@@ -453,3 +562,15 @@ def test_judgement_no_household():
     fixed = {"housing_costs_element": 0, "aged_25_or_over": True, "earned_income": 200_000}
     with pytest.raises(NoHousehold):
         judgement_value(_module(), SPECS, "has_lcw", fixed=fixed, rules=None)
+
+
+def test_timing_refuses_a_relaxed_module():
+    relaxed = translate.translate(SCOPE, relaxed=True)
+    with pytest.raises(QueryRefused, match="relaxed.*probes only"):
+        timing(relaxed, SPECS)
+
+
+def test_judgement_value_refuses_a_relaxed_module():
+    relaxed = translate.translate(SCOPE, relaxed=True)
+    with pytest.raises(QueryRefused, match="relaxed.*probes only"):
+        judgement_value(relaxed, SPECS, "has_lcw")

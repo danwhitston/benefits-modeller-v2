@@ -375,17 +375,17 @@ def test_check_exit_code_follows_unexplained_mismatches(capsys, monkeypatch):
         "aged_25_or_over": True, "has_lcw": True, "housing_costs_element": 0,
     }
     unexplained = checks.Mismatch(household, 57, 57, 60, {"award": 57, "work_allowance": 0})
-    monkeypatch.setattr(checks, "run", lambda households, module=None: [unexplained])
+    monkeypatch.setattr(checks, "run", lambda households, module=None, rules=None: [unexplained])
     assert cli.main(["check", UC_IR, "--inputs", UC_BOUNDS, "--n-random", "2"]) == 1
     assert "UNEXPLAINED" in capsys.readouterr().out
-    monkeypatch.setattr(checks, "run", lambda households, module=None: [])
+    monkeypatch.setattr(checks, "run", lambda households, module=None, rules=None: [])
     assert cli.main(["check", UC_IR, "--inputs", UC_BOUNDS, "--n-random", "2"]) == 0
 
 
 def test_translator_disagreement_exits_1(capsys, monkeypatch):
     from bm import checks
 
-    def disagree(households, module=None):
+    def disagree(households, module=None, rules=None):
         raise checks.TranslatorDisagreement({"earned_income": 1}, "award: Catala 1, Z3 2")
 
     monkeypatch.setattr(checks, "run", disagree)
@@ -399,7 +399,7 @@ def test_check_on_a_stale_ir_fails_with_the_provenance_error(tmp_path: Path, cap
     os.utime(stale, (1_000_000, 1_000_000))
     from bm import checks
 
-    def must_not_run(households, module=None):
+    def must_not_run(households, module=None, rules=None):
         raise AssertionError("the differential check ran on a stale IR")
 
     monkeypatch.setattr(checks, "run", must_not_run)
@@ -705,3 +705,406 @@ def test_a_rules_directory_without_the_rules_file_is_refused(tmp_path: Path, cap
         err = capsys.readouterr().err
         assert code == 1
         assert err.startswith("bm:") and "uc.catala_en" in err and err.count("\n") == 1
+
+
+def _spy_on_the_differential_check(monkeypatch) -> list[Path]:
+    """Make the differential check run one household, and return the rules files Catala is given.
+
+    Catala runs for real. PolicyEngine UK is replaced by Catala's own award, so
+    there is no mismatch and the test is fast.
+    """
+    from bm import catala_run, households, policyengine
+
+    household = {
+        "assessment_period_start": 20549, "earned_income": 148150,
+        "aged_25_or_over": True, "has_lcw": True, "housing_costs_element": 0,
+    }
+    seen: list[Path] = []
+    real = catala_run.outputs
+
+    def outputs(rules, scope, inputs):
+        seen.append(rules)
+        return real(rules, scope, inputs)
+
+    monkeypatch.setattr(households, "generate", lambda *args, **kwargs: [household])
+    monkeypatch.setattr(catala_run, "outputs", outputs)
+    monkeypatch.setattr(
+        policyengine, "award", lambda h: int(real(ROOT / "rules" / "uc.catala_en",
+                                                  "UniversalCredit", household)["award"])
+    )
+    return seen
+
+
+def _copy_of_the_rules(tmp_path: Path) -> Path:
+    import shutil
+
+    copy = tmp_path / "rules"
+    shutil.copytree(ROOT / "rules", copy)  # keeps modification times, so the IR is not stale
+    git(tmp_path, "init", "-q")
+    return copy
+
+
+def test_report_runs_the_differential_check_on_the_rules_given(tmp_path: Path, capsys, monkeypatch):
+    from bm import coverage, queries
+
+    copy = _copy_of_the_rules(tmp_path)
+    seen = _spy_on_the_differential_check(monkeypatch)
+    monkeypatch.setattr(queries, "emr", lambda *args, **kwargs: EmrResult("unknown", None, None, None, None, None, {}))
+    monkeypatch.setattr(coverage, "check", lambda *args, **kwargs: [])
+    monkeypatch.setattr(strategic, "timing", lambda *args, **kwargs: make_timing())
+    monkeypatch.setattr(strategic, "judgement_value", lambda *args, **kwargs: make_judgement())
+    cli.main(["report", UC_IR, "--inputs", UC_BOUNDS, "--rules", str(copy), "--n-random", "1"])
+    assert seen and set(seen) == {copy / "uc.catala_en"}, capsys.readouterr().err
+
+
+def test_check_runs_the_differential_check_on_the_rules_given(tmp_path: Path, capsys, monkeypatch):
+    copy = _copy_of_the_rules(tmp_path)
+    seen = _spy_on_the_differential_check(monkeypatch)
+    code = cli.main(["check", UC_IR, "--inputs", UC_BOUNDS, "--rules", str(copy), "--n-random", "1"])
+    assert code == 0, capsys.readouterr().err
+    assert seen and set(seen) == {copy / "uc.catala_en"}
+
+
+# The window query.
+
+WINDOW_IR = str(ROOT / "build" / "claim_window.bm-ir.json")
+WINDOW4_IR = str(ROOT / "build" / "claim_window4.bm-ir.json")
+WINDOW_INPUTS = str(ROOT / "rules" / "claim_window.inputs.toml")
+WINDOW_SPECS = inputs.load(Path(WINDOW_INPUTS), ir.load(Path(WINDOW_IR)))
+MODEL_GAPS = "Model gaps that limit these findings: docs/model-gaps.md"
+# One household, in the realistic case, with a fixed total: one case, and fast.
+FIXED_HOUSEHOLD = [
+    "--fix", "aged_25_or_over=true", "--fix", "has_lcw=true",
+    "--fix", "housing_costs_element=804.00", "--fix", "claim_after_end=true",
+    "--fix", "claim_each_month=true", "--fix", "lcw_carries_over=true",
+    "--total", "7800.00",
+]  # fmt: skip
+
+
+def run_window(*argv: str, ir_file: str = WINDOW_IR) -> tuple[int, str, str]:
+    """The exit status, stdout and stderr of `bm query window`, with the window inputs."""
+    import contextlib
+    import io
+
+    out, err = io.StringIO(), io.StringIO()
+    with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+        code = cli.main(["query", "window", ir_file, "--inputs", WINDOW_INPUTS, *argv])
+    return code, out.getvalue(), err.getvalue()
+
+
+@pytest.fixture(scope="module")
+def fixed_window() -> tuple[int, dict, str]:
+    """The fixed household's JSON and text, each run once."""
+    code, out, err = run_window(*FIXED_HOUSEHOLD, "--json")
+    assert err == ""
+    text_code, text, err = run_window(*FIXED_HOUSEHOLD)
+    assert err == "" and text_code == code
+    return code, json.loads(out), text
+
+
+def test_query_window_json_for_a_fixed_household(fixed_window):
+    code, data, _ = fixed_window
+    assert code == 0
+    assert data["query"] == "window"
+    assert data["unknown"] is False and data["status"] == "optimal"
+    assert data["probe"] is False and data["relaxed"] is False
+    assert data["periods"] == 3 and len(data["starts"]) == 3
+    assert data["total"] == 780_000
+    assert data["fixed"]["housing_costs_element"] == 80_400
+    assert data["provenance"]["ir_catala_version"] == "1.3.0"
+    assert data["provenance"]["translation"].startswith("exact")
+    assert data["verification"]["cvc5"] == "confirmed"
+    assert data["verification"]["replay"] == "matched"
+    (case,) = data["cases"]
+    assert case["realistic"] is True
+    assert set(case["figures"]) == {
+        "gain", "loss", "spread", "extra_payday_max", "extra_payday_min",
+    }  # fmt: skip
+    assert case["figures"]["gain"]["value"] >= 0
+    assert case["figures"]["gain"]["status"] == "optimal"
+    assert case["figures"]["gain"]["lower_bound"] is False
+    assert data["excluded"]
+
+
+def test_query_window_json_witnesses_carry_labels_and_traces(fixed_window):
+    _, data, _ = fixed_window
+    figure = data["cases"][0]["figures"]["gain"]
+    assert [w["copy"] for w in figure["witnesses"]] == ["split", "even"]
+    for w in figure["witnesses"]:
+        assert set(w["inputs"]) == set(WINDOW_SPECS)
+        for name, entry in w["inputs"].items():
+            assert entry["controlled_by"] == list(WINDOW_SPECS[name].controlled_by)
+            assert entry["checked_by"] == WINDOW_SPECS[name].checked_by
+        assert [p["period"] for p in w["trace"]] == [1, 2, 3]
+        for p in w["trace"]:
+            assert {"start", "earnings", "earnings_used", "award", "entitled", "surplus_after"} <= set(p)
+
+
+def test_query_window_text_for_a_fixed_household(fixed_window):
+    _, data, text = fixed_window
+    assert not text.startswith("PROBE")
+    assert text.rstrip().endswith(MODEL_GAPS)
+    gain = data["cases"][0]["figures"]["gain"]["value"]
+    assert report.money(gain) in text
+    assert "realistic" in text
+    assert "earnings used" in text and "surplus" in text
+    assert "controlled by employer, claimant; checked by third_party_data" in text
+    assert "Council Tax Support" in text and "Healthy Start" in text
+    assert "Reported earnings are taken as exact, although RTI reports can be late or wrong" in text
+    assert "reporting and any later correction are not modelled." in text
+    assert "£2,500" in text and "31 March 2027" in text and "29 October 2026" in text
+    assert "S.I. 2015/345 regulation 5" in text and "20 January 2026" in text
+    assert "docs/nil-months.md" in text
+    assert "departures from it" in text
+    assert "(an example of the class, not advice)" in text
+    assert "Pattern: the split" in text and "Copy " not in text
+    assert "extra_payday" not in text
+    assert "Across cases" in text and "smallest" in text
+    assert "last-period rule" in text  # the general excluded note
+    assert "Provenance" in text
+    assert "—" not in text
+
+
+def test_query_window_relaxed_needs_probe(capsys):
+    code, out, err = run_window(*FIXED_HOUSEHOLD, "--relaxed")
+    assert code == 1 and out == ""
+    assert err.startswith("bm: QueryRefused: ") and err.count("\n") == 1
+    assert "relaxed" in err
+
+
+def test_query_window_longer_window_needs_probe():
+    code, out, err = run_window(*FIXED_HOUSEHOLD, ir_file=WINDOW4_IR)
+    assert code == 1 and out == ""
+    assert err.startswith("bm: QueryRefused: ") and err.count("\n") == 1
+    assert "probe" in err
+
+
+def test_query_window_probe_is_labelled_and_leaves_out_the_payday_figures():
+    code, out, err = run_window(*FIXED_HOUSEHOLD, "--probe", ir_file=WINDOW4_IR)
+    assert err == "" and code == 0
+    assert out.startswith("PROBE: not a finding")
+    assert "Extra payday" not in out
+    assert out.rstrip().endswith("Model gaps that limit the model: docs/model-gaps.md")
+    assert "findings" not in out.split("Caveats")[0].replace("not a finding", "").replace(
+        "not findings", ""
+    )
+    assert "what the rules pay" not in out
+    _, js, _ = run_window(*FIXED_HOUSEHOLD, "--probe", "--json", ir_file=WINDOW4_IR)
+    data = json.loads(js)
+    assert data["probe"] is True and data["periods"] == 4
+    assert set(data["cases"][0]["figures"]) == {"gain", "loss", "spread"}
+
+
+def test_query_window_relaxed_probe_skips_replay_and_says_so():
+    code, out, err = run_window(*FIXED_HOUSEHOLD, "--probe", "--relaxed")
+    assert err == "" and code == 0
+    assert out.startswith("PROBE: not a finding")
+    assert "relaxed" in out.lower() and "not the rules" in out
+    assert "what the rules pay" not in out and MODEL_GAPS not in out
+    _, js, _ = run_window(*FIXED_HOUSEHOLD, "--probe", "--relaxed", "--json")
+    data = json.loads(js)
+    assert data["relaxed"] is True and data["probe"] is True
+    assert data["provenance"]["translation"].startswith("relaxed")
+    assert data["verification"]["replay"].startswith("skipped")
+
+
+def test_query_window_disagreement_exits_1(monkeypatch):
+    real = solvers.run
+
+    def cvc5_finds_better(solver, script, timeout_ms, **kwargs):
+        if solver == "cvc5":
+            return solvers.SolverResult("sat", {}, "test")
+        return real(solver, script, timeout_ms, **kwargs)
+
+    monkeypatch.setattr(solvers, "run", cvc5_finds_better)
+    code, out, err = run_window(*FIXED_HOUSEHOLD)
+    assert code == 1
+    assert "SolverDisagreement" in err and "Traceback" not in err
+    assert out == ""
+
+
+def test_query_window_unknown_exits_2_and_prints_no_amount(monkeypatch):
+    monkeypatch.setattr(solvers, "run", lambda solver, script, timeout_ms, **kw: solvers.SolverResult("unknown", None, "test"))
+    code, out, err = run_window(*FIXED_HOUSEHOLD)
+    assert code == 2 and err == ""
+    assert "UNKNOWN" in out and "£0.00" not in out
+    code, js, _ = run_window(*FIXED_HOUSEHOLD, "--json")
+    data = json.loads(js)
+    assert code == 2 and data["unknown"] is True and data["status"] == "unknown"
+    figures = data["cases"][0]["figures"]
+    assert all(f["value"] is None and f["status"] == "unknown" for f in figures.values())
+
+
+def test_query_window_with_no_household_exits_1():
+    code, out, err = run_window(
+        "--fix", "aged_25_or_over=true", "--fix", "has_lcw=false",
+        "--fix", "housing_costs_element=0.00", "--fix", "claim_after_end=true",
+        "--fix", "claim_each_month=true", "--total", "9000.00",
+    )  # fmt: skip
+    assert code == 1 and out == ""
+    assert err.startswith("bm: NoHousehold: ") and err.count("\n") == 1
+
+
+@pytest.mark.parametrize(
+    "bad", ["earnings_1=10.00", "start_2=2026-05-06", "nonsense=1", "has_lcw=maybe"]
+)
+def test_query_window_bad_fix_exits_1(bad):
+    code, out, err = run_window("--fix", bad)
+    assert code == 1 and out == ""
+    assert err.startswith("bm: ") and err.count("\n") == 1
+
+
+def test_query_window_bad_total_and_start_exit_1():
+    for args in (["--total", "7800"], ["--start", "2027-03-31"], ["--start", "yesterday"]):
+        code, out, err = run_window(*FIXED_HOUSEHOLD[:-2], *args)
+        assert code == 1 and out == ""
+        assert err.startswith("bm: ") and err.count("\n") == 1, args
+
+
+# The window report, from hand-made results.
+
+
+def make_window(figures: dict, *, excluded=None, **kwargs):
+    from bm.window import CaseResult, WindowResult
+
+    case = {"claim_after_end": False}
+    base = dict(
+        status="optimal", periods=3, probe=False, relaxed=False, starts=[20_549, 20_579, 20_610],
+        total=None, fixed={}, cases=[CaseResult(case, False, figures)],
+        excluded=["a general note"] + (excluded or []),
+        verification={"cvc5": "confirmed", "replay": "not run", "replayed": []}, versions={},
+    )  # fmt: skip
+    return WindowResult(**{**base, **kwargs})
+
+
+def window_figure(value, status="optimal", lower_bound=False):
+    from bm.window import Figure
+
+    return Figure(value, status, lower_bound, [])
+
+
+def test_window_text_says_at_least_for_a_lower_bound():
+    result = make_window({"loss": window_figure(12_345, lower_bound=True), "gain": window_figure(500)})
+    text = "\n".join(report.window_text(result, WINDOW_SPECS))
+    assert "at least £123.45" in text
+    assert "at least £5.00" not in text and "£5.00" in text
+
+
+def test_window_text_never_prints_an_infeasible_figure_as_nil():
+    note = "In the case claim_after_end no, the even split ends the window at nil, so the case has no figures."
+    result = make_window(
+        {"gain": window_figure(None, "infeasible"), "loss": window_figure(None, "infeasible", True)},
+        excluded=[note],
+    )
+    text = "\n".join(report.window_text(result, WINDOW_SPECS))
+    assert "not available: the even split ends the window at nil, so the case has no figures." in text
+    assert "£0.00" not in text
+
+
+def test_window_text_unknown_is_not_an_amount():
+    result = make_window(
+        {"gain": window_figure(None, "unknown"), "loss": window_figure(700, "unknown", True)},
+        status="unknown",
+    )
+    text = "\n".join(report.window_text(result, WINDOW_SPECS))
+    assert "UNKNOWN" in text and "not the same as" in text
+    assert "£0.00" not in text
+    assert "Z3 found at least £7.00, but cvc5 could not confirm" in text
+    assert report.window_json(result, WINDOW_SPECS, None)["unknown"] is True
+
+
+def test_query_window_shows_every_realistic_case_first_and_an_unavailable_figure_in_words():
+    # has_lcw free, so there are two realistic cases (with LCW carried over, and without LCW)
+    # and one other. At this total the even split ends in nil without LCW.
+    code, out, err = run_window(
+        "--fix", "aged_25_or_over=true", "--fix", "housing_costs_element=804.00",
+        "--fix", "claim_after_end=true", "--fix", "claim_each_month=true",
+        "--total", "7800.00", "--json",
+    )  # fmt: skip
+    data = json.loads(out)
+    assert code == 0 and err == ""
+    assert [c["realistic"] for c in data["cases"]] == [True, True, False]
+    nil = next(c for c in data["cases"] if c["case"].get("has_lcw") is False)
+    assert {f["status"] for f in nil["figures"].values()} == {"infeasible"}
+    assert all(f["value"] is None and "even split ends the window at nil" in f["reason"] for f in nil["figures"].values())
+    code, text, _ = run_window(
+        "--fix", "aged_25_or_over=true", "--fix", "housing_costs_element=804.00",
+        "--fix", "claim_after_end=true", "--fix", "claim_each_month=true",
+        "--total", "7800.00",
+    )  # fmt: skip
+    assert "not available: the even split ends the window at nil" in text
+    assert "Households for the other cases are in the --json output." in text
+    assert text.index("(realistic)") < text.index("(not the realistic case)")
+
+
+def test_window_text_summarises_a_partial_replay():
+    replayed = ["gain, claim_after_end no", "loss, claim_after_end no"]
+    result = make_window(
+        {"gain": window_figure(1), "loss": window_figure(2), "spread": window_figure(None, "unknown")},
+        verification={"cvc5": "unknown", "replay": "matched in part", "replayed": replayed},
+    )
+    text = "\n".join(report.window_text(result, WINDOW_SPECS))
+    assert "at the witnesses of 2 of 3 figures; the other 1 has no witness" in text
+    assert "claim_after_end no" not in text.split("Verification:")[1].split("\n")[0]
+    assert report.window_json(result, WINDOW_SPECS, None)["verification"]["replayed"] == replayed
+
+
+def test_window_text_maps_identifiers_to_figure_names():
+    note = (
+        "In the case claim_after_end no, no payday amount P keeps the last-period rule on the"
+        " even split, so the case has no extra_payday_min."
+    )
+    general = "the copy that the loss, the spread and extra_payday_max subtract is exempt"
+    result = make_window(
+        {"extra_payday_min": window_figure(None, "infeasible"), "gain": window_figure(1)},
+        excluded=[note, general],
+    )
+    text = "\n".join(report.window_text(result, WINDOW_SPECS))
+    assert "extra_payday" not in text and "copy" not in text
+    assert "so the case has no smallest extra payday figure." in text
+    assert "not available: no payday amount P keeps" in text
+    assert "and the largest extra payday figure subtract" in text
+    assert "extra_payday_min" in report.window_json(result, WINDOW_SPECS, None)["excluded"][1]
+
+
+def make_two_cases(figs_a, figs_b):
+    from bm.window import CaseResult
+
+    return make_window(
+        figs_a,
+        cases=[
+            CaseResult({"claim_after_end": True}, True, figs_a),
+            CaseResult({"claim_after_end": False}, False, figs_b),
+        ],
+    )
+
+
+def test_window_across_cases_gives_largest_and_smallest_with_their_cases():
+    result = make_two_cases(
+        {"gain": window_figure(500), "loss": window_figure(40)},
+        {"gain": window_figure(900), "loss": window_figure(70, lower_bound=True)},
+    )
+    data = report.window_json(result, WINDOW_SPECS, None)["across_cases"]
+    assert data["gain"]["largest"] == {
+        "value": 900, "case": {"claim_after_end": False}, "realistic": False, "lower_bound": False,
+    }  # fmt: skip
+    assert data["gain"]["smallest"]["value"] == 500 and data["gain"]["smallest"]["realistic"] is True
+    # The loss in the second case is only a lower bound, so the largest is too; the smallest is exact.
+    assert data["loss"]["largest"]["lower_bound"] is True
+    assert data["loss"]["smallest"]["lower_bound"] is False
+    text = "\n".join(report.window_text(result, WINDOW_SPECS))
+    assert "Gain: largest £9.00, in the case claim_after_end no (not the realistic case); smallest £5.00" in text
+    assert "Loss: largest at least £0.70" in text and "smallest £0.40" in text
+
+
+def test_window_across_cases_leaves_out_and_counts_unsettled_values():
+    result = make_two_cases(
+        {"gain": window_figure(500), "loss": window_figure(None, "unknown")},
+        {"gain": window_figure(None, "infeasible"), "loss": window_figure(None, "infeasible")},
+    )
+    data = report.window_json(result, WINDOW_SPECS, None)["across_cases"]
+    assert data["gain"]["left_out"] == {"infeasible": 1, "unknown": 0}
+    assert data["loss"]["largest"] is None and data["loss"]["left_out"] == {"infeasible": 1, "unknown": 1}
+    text = "\n".join(report.window_text(result, WINDOW_SPECS))
+    assert "left out: 1 not available" in text
+    assert "Loss: no value in any case; left out: 1 not available, 1 unknown" in text

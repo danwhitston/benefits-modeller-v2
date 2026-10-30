@@ -17,7 +17,7 @@ from bm import solvers
 from bm.household import Script
 from bm.inputs import Bound
 from bm.ir import Pos
-from bm.translate import SmtModule
+from bm.translate import RELAXED_REFUSAL, SmtModule
 
 
 @dataclass(frozen=True)
@@ -37,8 +37,11 @@ def check(
 
     Raises `SolverDisagreement` if Z3 says an obligation cannot hold and cvc5
     finds a household where it does. If cvc5 cannot settle it in time, the
-    finding is `unknown`.
+    finding is `unknown`. Raises `ValueError` for a relaxed module, which is
+    not the rules.
     """
+    if module.relaxed:
+        raise ValueError(f"coverage cannot be checked: {RELAXED_REFUSAL}")
     base = Script(module, bounds)
     household = base.instance(defined=False)
     findings = []
