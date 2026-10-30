@@ -21,6 +21,7 @@ from bm.strategic import (
     TimingResult,
     cases,
     check_choice,
+    fixed_by_condition,
     judgement_points,
     judgement_value,
     period_starts,
@@ -32,6 +33,9 @@ from bm.translate import apply, literal, quote
 ROOT = Path(__file__).resolve().parent.parent
 SCOPE = ir.load(ROOT / "build" / "uc.bm-ir.json")
 SPECS = inputs.load(ROOT / "rules" / "uc.inputs.toml", SCOPE)
+WINDOW_SPECS = inputs.load(
+    ROOT / "rules" / "claim_window.inputs.toml", ir.load(ROOT / "build" / "claim_window.bm-ir.json")
+)
 
 # Fixed households (aged 25 or over, housing costs element in pence) and totals
 # of earned income in pence over the two periods, for the brute-force check.
@@ -65,6 +69,77 @@ def test_cases():
     assert cases(SPECS, []) == [{}]
     with pytest.raises(QueryRefused):
         cases(SPECS, ["has_lcw"], cap=1)
+
+
+def test_window_judgement_points():
+    assert judgement_points(WINDOW_SPECS, {}) == [
+        "has_lcw",
+        "claim_after_end",
+        "claim_each_month",
+        "lcw_carries_over",
+    ]
+
+
+def test_window_cases_are_nine():
+    specs = WINDOW_SPECS
+    all_cases = cases(specs, judgement_points(specs, {}), cap=12)
+    assert len(all_cases) == 9
+    assert all_cases[0] == {k: True for k in all_cases[0]}  # True first
+    assert len({tuple(sorted(c.items())) for c in all_cases}) == 9
+    for case in all_cases:
+        assert set(case) == set(judgement_points(specs, {}))
+        if not case["claim_after_end"]:
+            assert case["claim_each_month"] is False
+        if not case["has_lcw"]:
+            assert case["lcw_carries_over"] is False
+
+
+def test_window_cases_refused_above_the_cap():
+    with pytest.raises(QueryRefused, match="9 cases, above the cap of 8"):
+        cases(WINDOW_SPECS, judgement_points(WINDOW_SPECS, {}), cap=8)
+
+
+def test_fixing_has_lcw_false_leaves_three_cases():
+    # The caller fixes has_lcw False; lcw_carries_over is then not a point and
+    # `fixed_by_condition` gives the value the caller must fix it at.
+    specs, fixed = WINDOW_SPECS, {"has_lcw": False}
+    points = judgement_points(specs, fixed)
+    assert points == ["claim_after_end", "claim_each_month"]
+    assert len(cases(specs, points, cap=12)) == 3
+    assert fixed_by_condition(specs, fixed) == {"lcw_carries_over": False}
+
+
+def test_fixing_has_lcw_true_keeps_the_child_a_point():
+    specs, fixed = WINDOW_SPECS, {"has_lcw": True}
+    points = judgement_points(specs, fixed)
+    assert points == ["claim_after_end", "claim_each_month", "lcw_carries_over"]
+    assert len(cases(specs, points, cap=12)) == 6
+    assert fixed_by_condition(specs, fixed) == {}
+
+
+def test_fixing_claim_after_end_false_removes_claim_each_month():
+    specs, fixed = WINDOW_SPECS, {"claim_after_end": False}
+    points = judgement_points(specs, fixed)
+    assert points == ["has_lcw", "lcw_carries_over"]
+    assert len(cases(specs, points, cap=12)) == 3
+    assert fixed_by_condition(specs, fixed) == {"claim_each_month": False}
+
+
+def test_fixing_a_child_directly_leaves_the_parent():
+    specs, fixed = WINDOW_SPECS, {"lcw_carries_over": True}
+    points = judgement_points(specs, fixed)
+    assert points == ["has_lcw", "claim_after_end", "claim_each_month"]
+    assert fixed_by_condition(specs, fixed) == {}
+    assert len(cases(specs, points, cap=12)) == 6
+
+
+def test_fixed_by_condition_leaves_a_fixed_child_alone():
+    fixed = {"has_lcw": False, "lcw_carries_over": True}
+    assert fixed_by_condition(WINDOW_SPECS, fixed) == {}
+
+
+def test_fixed_by_condition_is_empty_for_milestone_2():
+    assert fixed_by_condition(SPECS, {"has_lcw": False}) == {}
 
 
 def test_cases_refuse_a_point_that_is_not_boolean():

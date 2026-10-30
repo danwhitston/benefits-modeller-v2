@@ -120,12 +120,37 @@ _CHOOSERS = ("claimant", "employer")
 
 
 def judgement_points(specs: dict[str, InputSpec], fixed: dict[str, int | bool]) -> list[str]:
-    """The unfixed inputs the decision maker controls, in scope order."""
+    """The unfixed inputs the decision maker controls, in scope order.
+
+    A point with an `applies_when` is left out when the caller has fixed the
+    point it depends on to False: it cannot matter, so it is not tried. The
+    caller must then fix it to False too, and `fixed_by_condition` gives the
+    values. When the parent is fixed True the child stays a point, and when the
+    parent is not fixed, `cases` pairs the two.
+    """
+    dropped = fixed_by_condition(specs, fixed)
     return [
         name
         for name, spec in specs.items()
-        if "decision_maker" in spec.controlled_by and name not in fixed
+        if "decision_maker" in spec.controlled_by and name not in fixed and name not in dropped
     ]
+
+
+def fixed_by_condition(
+    specs: dict[str, InputSpec], fixed: dict[str, int | bool]
+) -> dict[str, bool]:
+    """The inputs a fixed condition fixes to False: those whose `applies_when`
+    point the caller has fixed False and which the caller has not fixed.
+
+    Empty when no spec has an `applies_when`, as for `rules/uc.inputs.toml`.
+    """
+    return {
+        name: False
+        for name, spec in specs.items()
+        if spec.applies_when is not None
+        and name not in fixed
+        and fixed.get(spec.applies_when) is False
+    }
 
 
 def cases(
@@ -133,23 +158,44 @@ def cases(
 ) -> list[dict[str, bool]]:
     """Every combination of the points' values, with True first.
 
-    With no points there is one empty case. Refuses a point that is not a
-    Boolean input, and more than `cap` cases.
+    With no points there is one empty case. A point whose `applies_when` names
+    another of the points is skipped in the combinations where that point is
+    False, and is fixed False there, so each case still gives every point a
+    value. A point whose `applies_when` names an input that is not among the
+    points (the caller fixed it True) is free. Refuses a point that is not a
+    Boolean input, a condition that chains, and more than `cap` cases.
     """
     for point in points:
         spec = specs.get(point)
         if spec is None or spec.type != "bool":
             kind = "not an input" if spec is None else f"a {spec.type} input"
             raise QueryRefused(f"judgement point {point} must be a Boolean input, but is {kind}")
-    count = 2 ** len(points)
+    parents = {
+        point: specs[point].applies_when
+        for point in points
+        if specs[point].applies_when in points
+    }
+    if chained := sorted(set(parents) & set(parents.values())):
+        raise QueryRefused(f"judgement points {chained} have conditions that chain")
+    # A parent with k children gives 1 case when False and 2**k when True.
+    children = {
+        parent: sum(1 for p in parents.values() if p == parent) for parent in set(parents.values())
+    }
+    count = 2 ** (len(points) - len(parents) - len(children))
+    for k in children.values():
+        count *= 1 + 2**k
     if count > cap:
         raise QueryRefused(
             f"{len(points)} judgement points give {count} cases, above the cap of {cap}"
         )
-    return [
-        dict(zip(points, values, strict=True))
-        for values in itertools.product((True, False), repeat=len(points))
-    ]
+    found: dict[tuple[bool, ...], dict[str, bool]] = {}
+    for values in itertools.product((True, False), repeat=len(points)):
+        case = dict(zip(points, values, strict=True))
+        for child, parent in parents.items():
+            if not case[parent]:
+                case[child] = False
+        found.setdefault(tuple(case.values()), case)
+    return list(found.values())
 
 
 def check_choice(specs: dict[str, InputSpec], choice: Split) -> None:

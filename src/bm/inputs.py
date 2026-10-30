@@ -11,8 +11,22 @@ The file is the one list of the scope's inputs. Every input has a table
 - `controlled_by`: a non-empty list drawn from `CONTROLLED_BY`, naming who can
   change the input's value;
 - `checked_by`: one of `CHECKED_BY`, naming how the value is checked.
+
+Two further keys are optional:
+
+- `per_period = true`, on a money, date or integer input named `<base>`. The
+  loader replaces the entry with one for each input of the scope named
+  `<base>_1`, `<base>_2` and so on, each with the same bounds and labels, so
+  that one file serves scopes of different lengths. An entry that matches no
+  input of the scope is refused, as is one that clashes with an explicit entry.
+- `applies_when = "<name>"`, on a Boolean judgement point (a Boolean input
+  whose `controlled_by` includes `decision_maker`). `<name>` must be another
+  Boolean judgement point that has no `applies_when` itself, so conditions do
+  not chain. The input matters only when `<name>` is true; see
+  `bm.strategic.judgement_points`, `fixed_by_condition` and `cases`.
 """
 
+import re
 import tomllib
 from dataclasses import dataclass
 from datetime import date, datetime
@@ -51,6 +65,8 @@ class InputSpec:
     bound: Bound | None
     controlled_by: tuple[str, ...]
     checked_by: str
+    # The Boolean judgement point that must be true for this one to matter.
+    applies_when: str | None = None
 
 
 def load(path: Path, scope: Scope) -> dict[str, InputSpec]:
@@ -58,13 +74,47 @@ def load(path: Path, scope: Scope) -> dict[str, InputSpec]:
     data = tomllib.loads(Path(path).read_text())
     if set(data) != {"inputs"}:
         raise InputsError(f"{path}: expected only an [inputs] table, found {sorted(data)}")
-    tables = data["inputs"]
     types = {v.name: v.type for v in scope.inputs}
+    tables = _expand_per_period(path, data["inputs"], types)
     if unknown := sorted(set(tables) - set(types)):
         raise InputsError(f"{path}: unknown inputs {unknown}")
     if missing := [n for n in types if n not in tables]:
         raise InputsError(f"{path}: no entry for inputs {missing}")
-    return {name: _spec(path, name, types[name], tables[name]) for name in types}
+    specs = {name: _spec(path, name, types[name], tables[name]) for name in types}
+    for name, spec in specs.items():
+        if spec.applies_when is not None:
+            _check_condition(path, name, spec.applies_when, specs)
+    return specs
+
+
+def _expand_per_period(path: Path, tables: dict, types: dict[str, str]) -> dict:
+    """The tables with each per-period entry replaced by one per matching input."""
+    expanded: dict = {}
+    for name, table in tables.items():
+        if not isinstance(table, dict) or "per_period" not in table:
+            continue
+        where = f"{path}: [inputs.{name}]"
+        if table["per_period"] is not True:
+            raise InputsError(f"{where}: per_period must be true, not {table['per_period']!r}")
+        if table.get("type") not in BOUNDED:
+            raise InputsError(
+                f"{where}: per_period applies to money, date and integer inputs, "
+                f"not {table.get('type')!r}"
+            )
+        pattern = re.compile(rf"{re.escape(name)}_[0-9]+")
+        matches = [n for n in types if pattern.fullmatch(n)]
+        if not matches:
+            raise InputsError(f"{where}: per_period entry matches no input of the scope")
+        for match in matches:
+            if match in tables:
+                raise InputsError(
+                    f"{where}: per_period would define {match}, which has its own entry"
+                )
+            expanded[match] = {k: v for k, v in table.items() if k != "per_period"}
+    kept = {
+        n: t for n, t in tables.items() if not (isinstance(t, dict) and "per_period" in t)
+    }
+    return kept | expanded
 
 
 def bounds(specs: dict[str, InputSpec]) -> dict[str, Bound]:
@@ -79,6 +129,8 @@ def _spec(path: Path, name: str, ir_type: str, table: dict) -> InputSpec:
     expected = {"type", "controlled_by", "checked_by"}
     if ir_type in BOUNDED:
         expected |= {"min", "max"}
+    elif "applies_when" in table:
+        expected |= {"applies_when"}
     if missing := sorted(expected - set(table)):
         raise InputsError(f"{where} is missing keys {missing}")
     if extra := sorted(set(table) - expected):
@@ -91,13 +143,36 @@ def _spec(path: Path, name: str, ir_type: str, table: dict) -> InputSpec:
         if lo > hi:
             raise InputsError(f"{where}: min is greater than max")
         bound = Bound(ir_type, lo, hi)
+    applies_when = table.get("applies_when")
+    if applies_when is not None and not isinstance(applies_when, str):
+        raise InputsError(f"{where}: applies_when must be an input name, not {applies_when!r}")
     return InputSpec(
         name,
         ir_type,
         bound,
         _controlled_by(where, table["controlled_by"]),
         _checked_by(where, table["checked_by"]),
+        applies_when,
     )
+
+
+def _check_condition(path: Path, name: str, parent: str, specs: dict[str, InputSpec]) -> None:
+    where = f"{path}: [inputs.{name}]"
+    if "decision_maker" not in specs[name].controlled_by:
+        raise InputsError(f"{where}: applies_when needs a judgement point, and {name} is not one")
+    if parent == name:
+        raise InputsError(f"{where}: applies_when names the input itself")
+    if parent not in specs:
+        raise InputsError(f"{where}: applies_when names unknown input {parent!r}")
+    spec = specs[parent]
+    if spec.type != "bool":
+        raise InputsError(f"{where}: applies_when must name a Boolean, but {parent} is {spec.type}")
+    if "decision_maker" not in spec.controlled_by:
+        raise InputsError(f"{where}: applies_when must name a judgement point, and {parent} is not")
+    if spec.applies_when is not None:
+        raise InputsError(
+            f"{where}: {parent} has an applies_when of its own; conditions do not chain"
+        )
 
 
 def _controlled_by(where: str, value: object) -> tuple[str, ...]:
