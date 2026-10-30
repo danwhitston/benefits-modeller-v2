@@ -278,6 +278,10 @@ These readings drive the milestone's findings. All are questions for an outside 
 - Where no claim is made after the end of an award, the loss is a lower bound.
 - For claimants paid regularly each month, a finding that relies on two payments in one period holds only if regulation 61(6) is not used.
 - The housing costs element is an input, so findings hold for a given element, not for a given rent.
+- Gaps in the tests and the probe, recorded at the final review for a later milestone:
+  - No `WindowStep` test calls the step directly for a live award that continues; that transition is tested only through `ClaimWindow`.
+  - The `ClaimWindow` tests are not built on the structure of ADM A2050 Example 4, which needs a window of 4 periods.
+  - The scaling probe measured gain and loss in the realistic case only.
 
 ## Sources checked
 
@@ -285,7 +289,7 @@ Legislation is on legislation.gov.uk, latest revised versions, read through the 
 
 - Welfare Reform Act 2012, sections [3](https://www.legislation.gov.uk/ukpga/2012/5/section/3), [5](https://www.legislation.gov.uk/ukpga/2012/5/section/5), [7](https://www.legislation.gov.uk/ukpga/2012/5/section/7) and [8](https://www.legislation.gov.uk/ukpga/2012/5/section/8).
 - Universal Credit Regulations 2013 (S.I. 2013/376), regulations [6](https://www.legislation.gov.uk/uksi/2013/376/regulation/6), [17](https://www.legislation.gov.uk/uksi/2013/376/regulation/17), [21](https://www.legislation.gov.uk/uksi/2013/376/regulation/21), [22](https://www.legislation.gov.uk/uksi/2013/376/regulation/22), [22A](https://www.legislation.gov.uk/uksi/2013/376/regulation/22A), [28](https://www.legislation.gov.uk/uksi/2013/376/regulation/28), [39](https://www.legislation.gov.uk/uksi/2013/376/regulation/39), [54](https://www.legislation.gov.uk/uksi/2013/376/regulation/54), [54A](https://www.legislation.gov.uk/uksi/2013/376/regulation/54A) and [61](https://www.legislation.gov.uk/uksi/2013/376/regulation/61).
-- Universal Credit etc. (Claims and Payments) Regulations 2013 (S.I. 2013/380), regulations [26](https://www.legislation.gov.uk/uksi/2013/380/regulation/26) and [32A](https://www.legislation.gov.uk/uksi/2013/380/regulation/32A). Paragraphs (3) and (4) of regulation 32A, inserted from 22 September 2026 by S.I. 2026/946, concern funded employment schemes and are outside scope.
+- The Universal Credit, Personal Independence Payment, Jobseeker's Allowance and Employment and Support Allowance (Claims and Payments) Regulations 2013 (S.I. 2013/380; title checked on legislation.gov.uk 30 October 2026), regulations [26](https://www.legislation.gov.uk/uksi/2013/380/regulation/26) and [32A](https://www.legislation.gov.uk/uksi/2013/380/regulation/32A). Paragraphs (3) and (4) of regulation 32A, inserted from 22 September 2026 by S.I. 2026/946, concern funded employment schemes and are outside scope.
 - Universal Credit, Personal Independence Payment, Jobseeker's Allowance and Employment and Support Allowance (Decisions and Appeals) Regulations 2013 (S.I. 2013/381), [regulation 23](https://www.legislation.gov.uk/uksi/2013/381/regulation/23) and [Schedule 1](https://www.legislation.gov.uk/uksi/2013/381/schedule/1).
 - S.I. 2015/345, [regulation 5](https://www.legislation.gov.uk/uksi/2015/345/regulation/5), and the Secretary of State's determination under it, made 20 January 2026 and published on gov.uk on 31 March 2026.
 - The [explanatory memorandum](https://www.legislation.gov.uk/uksi/2020/1138/pdfs/uksiem_20201138_en.pdf) to S.I. 2020/1138, and ADM memos 10/20 and 27/20.
