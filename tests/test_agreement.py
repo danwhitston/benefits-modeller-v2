@@ -1,9 +1,11 @@
-"""Catala's interpreter and Z3 must agree on every output of the UC scope.
+"""Catala's interpreter and Z3 must agree on every output of the UC and window scopes.
 
 `evaluate.outputs` runs the translated SMT-LIB in Z3. `catala_run.outputs` runs
 the rules in Catala's own interpreter. Any difference is a translator bug.
 """
 
+import itertools
+import random
 from datetime import date
 from functools import cache
 from pathlib import Path
@@ -12,7 +14,7 @@ import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
-from bm import catala_run, evaluate, inputs, ir, translate
+from bm import catala_run, evaluate, inputs, ir, strategic, translate
 
 ROOT = Path(__file__).resolve().parent.parent
 RULES = ROOT / "rules" / "uc.catala_en"
@@ -43,17 +45,22 @@ def household(
     }
 
 
-def assert_agree(inputs: dict[str, int | bool]) -> None:
-    """Both engines give the same outputs, or both stop with an error."""
-    module, _ = _loaded()
+def assert_agree(
+    inputs: dict[str, int | bool], module=None, scope: str = SCOPE
+) -> dict[str, int | bool] | None:
+    """Both engines give the same outputs, or both stop with an error.
+
+    Returns the outputs, or None where both stop with an error.
+    """
+    module = module or _loaded()[0]
     try:
         z3_result = evaluate.outputs(module, inputs)
     except evaluate.EvaluationError:
         with pytest.raises(catala_run.CatalaRuntimeError):
-            catala_run.outputs(RULES, SCOPE, inputs)
-        return
+            catala_run.outputs(RULES, scope, inputs)
+        return None
     try:
-        catala_result = catala_run.outputs(RULES, SCOPE, inputs)
+        catala_result = catala_run.outputs(RULES, scope, inputs)
     except catala_run.CatalaRuntimeError as error:
         pytest.fail(f"Catala stopped but Z3 did not, at {inputs}: {error}")
     assert set(catala_result) >= set(module.outputs)
@@ -61,6 +68,7 @@ def assert_agree(inputs: dict[str, int | bool]) -> None:
         assert catala_result[name] == z3_result[name], (
             f"{name} differs at {inputs}: Catala {catala_result[name]}, Z3 {z3_result[name]}"
         )
+    return z3_result
 
 
 @st.composite
@@ -154,3 +162,106 @@ def test_interpreter_money_is_exact_pence():
         "maximum_amount": 92490,
         "award": 60975,
     }
+
+
+# The window: three monthly periods of the ClaimWindow scope.
+
+WINDOW_IR = ROOT / "build" / "claim_window.bm-ir.json"
+WINDOW_BOUNDS = ROOT / "rules" / "claim_window.inputs.toml"
+WINDOW = "ClaimWindow"
+PERIODS = 3
+# Starts one calendar month apart.
+STARTS = [days(date(2026, 4, 6)), days(date(2026, 5, 6)), days(date(2026, 6, 6))]
+HOUSING_PENCE = [0, 1, 804_00]
+EARNINGS_MAX = 10_000_00
+SAMPLES_PER_CONFIGURATION = 4
+
+
+@cache
+def _window():
+    scope = ir.load(WINDOW_IR)
+    return translate.translate(scope), inputs.load(WINDOW_BOUNDS, scope)
+
+
+def window_household(
+    aged_25: bool, housing: int, case: dict[str, bool], earnings: tuple[int, ...]
+) -> dict[str, int | bool]:
+    return {
+        **{f"start_{k + 1}": STARTS[k] for k in range(PERIODS)},
+        **{f"earnings_{k + 1}": earnings[k] for k in range(PERIODS)},
+        "aged_25_or_over": aged_25,
+        "housing_costs_element": housing,
+        **case,
+    }
+
+
+@cache
+def _thresholds(aged_25: bool, housing: int, has_lcw: bool) -> tuple[int, int]:
+    """Catala's nil UC threshold and relevant threshold for the first period."""
+    case = {
+        "has_lcw": has_lcw,
+        "claim_after_end": False,
+        "claim_each_month": False,
+        "lcw_carries_over": False,
+    }
+    result = catala_run.outputs(
+        RULES, WINDOW, window_household(aged_25, housing, case, (0,) * PERIODS)
+    )
+    return result["nil_uc_threshold_1"], result["relevant_threshold_1"]
+
+
+@pytest.mark.slow
+def test_claim_window_agrees_with_catala():
+    """Catala and Z3 agree on every output, for households near the thresholds.
+
+    The earnings in each period are the nil UC threshold or the relevant
+    threshold, or a penny either side of one, as Catala works them out for the
+    household. For the nil UC threshold the range runs down three pence, to
+    reach the last earnings at which the rounded award is still at least 1p.
+    The households cross age, the housing element and every judgement case
+    (which includes the finding of limited capability for work).
+    """
+    module, specs = _window()
+    fixed = strategic.close_fixed(specs, {})
+    points = strategic.judgement_points(specs, fixed)
+    case_list = strategic.cases(specs, points, cap=12)
+    assert len(case_list) == 9
+
+    households = []
+    for i, (aged_25, housing, case) in enumerate(
+        itertools.product([True, False], HOUSING_PENCE, case_list)
+    ):
+        nil, relevant = _thresholds(aged_25, housing, case["has_lcw"])
+        assert nil < relevant
+        offsets = [(nil, d) for d in range(-3, 2)] + [(relevant, d) for d in (-1, 0, 1)]
+        near = sorted({min(max(t + d, 0), EARNINGS_MAX) for t, d in offsets})
+        every = list(itertools.product(near, repeat=PERIODS))
+        # Every configuration has a household that ends the award on a surplus
+        # in the first period, one that is entitled in the first period and
+        # ends the award in the second, and one that is entitled throughout;
+        # the others are a seeded sample.
+        picks = [
+            (relevant + 1, nil + 1, nil - 1),
+            (nil - 3, nil + 1, relevant + 1),
+            (nil - 3, nil - 3, nil - 3),
+        ]
+        picks += random.Random(i).sample(every, SAMPLES_PER_CONFIGURATION - len(picks))
+        households += [window_household(aged_25, housing, case, e) for e in picks]
+    assert len(households) >= 60
+
+    with_nil_period = with_surplus = all_entitled = 0
+    for household in households:
+        result = assert_agree(household, module, WINDOW)
+        assert result is not None, f"both engines stopped with an error at {household}"
+        entitled = [result[f"entitled_{k + 1}"] for k in range(PERIODS)]
+        with_nil_period += not all(entitled)
+        all_entitled += all(entitled)
+        with_surplus += any(result[f"surplus_after_{k + 1}"] > 0 for k in range(PERIODS))
+    print(
+        f"window agreement: {len(households)} households,"
+        f" {with_nil_period} with a nil period, {all_entitled} entitled throughout,"
+        f" {with_surplus} with a surplus"
+    )
+    assert all_entitled >= 10
+    assert with_nil_period >= 10
+    assert with_surplus >= 10

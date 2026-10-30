@@ -24,19 +24,24 @@ script that does not parse, raises `SolverError`.
 
 Models cover the declared constants only, as ints and bools. A declared
 constant of another sort (Real, for example) in a satisfiable script raises
-`SolverError`, because the project's queries have no such constants.
+`SolverError`, because the project's queries have no such constants. The one
+exception is a relaxed probe (`bm.translate.translate(scope, relaxed=True)`),
+which is not the rules: `run(..., reals=True)` and
+`optimise_and_confirm(..., sort="Real")` read Real constants as `Fraction`.
 """
 
+import math
 import re
 import time
 from dataclasses import dataclass
+from fractions import Fraction
 from typing import Literal
 
 import cvc5
 import z3
 
 Status = Literal["sat", "unsat", "unknown"]
-Model = dict[str, int | bool]
+Model = dict[str, int | bool | Fraction]
 
 _SYMBOL = r"\|[^|]*\||[^\s()|]+"
 _DECLARATION = re.compile(
@@ -99,6 +104,7 @@ def optimise_and_confirm(
     timeout_ms: int,
     context: str = "",
     max_checks: int = 200,
+    sort: Literal["Int", "Real"] = "Int",
 ) -> Optimum:
     """Z3 optimises the SMT-LIB term `objective`; cvc5 confirms nothing is better.
 
@@ -125,13 +131,24 @@ def optimise_and_confirm(
     "unknown" and Z3's optimum is kept. Neither unknown is ever read as an
     optimum.
 
+    With `sort="Real"` the objective is declared `Real` and model values may be
+    `Fraction`. Targets stay integers, and the value is the largest integer
+    (for a minimum, the least) that the search proves reachable: the integer
+    part of the supremum when Z3 proves none above it. cvc5 is then asked for an
+    objective at least one beyond the value. This is for relaxed probes only
+    (see `bm.translate`), whose results are not findings about the rules.
+
     The timing figures in the module docstring were measured by a milestone 2
     reviewer, not by the code's author.
     """
     if direction not in ("max", "min"):
         raise ValueError(f"direction must be 'max' or 'min', not {direction!r}")
+    if sort not in ("Int", "Real"):
+        raise ValueError(f"sort must be 'Int' or 'Real', not {sort!r}")
+    reals = sort == "Real"
+    read = {"reals": True} if reals else {}  # the default is the Int and Bool reading
     name = f"|{OBJECTIVE}|"
-    base = [*lines, f"(declare-const {name} Int)", f"(assert (= {name} {objective}))"]
+    base = [*lines, f"(declare-const {name} {sort})", f"(assert (= {name} {objective}))"]
     # The search works on sign * objective, so that better is always larger.
     sign = 1 if direction == "max" else -1
     at_least = ">=" if direction == "max" else "<="
@@ -144,8 +161,10 @@ def optimise_and_confirm(
         if remaining_ms < 1 or checks >= max_checks:
             return SolverResult("unknown", None, _z3_version())
         checks += 1
-        extra = [] if target is None else [f"(assert ({at_least} {name} {_int(sign * target)}))"]
-        return run("z3", "\n".join([*base, *extra, "(check-sat)"]) + "\n", remaining_ms)
+        extra = []
+        if target is not None:
+            extra = [f"(assert ({at_least} {name} {_number(sign * target, sort)}))"]
+        return run("z3", "\n".join([*base, *extra, "(check-sat)"]) + "\n", remaining_ms, **read)
 
     def unknown() -> Optimum:
         # cvc5 does not run, so its version is read from the package.
@@ -157,7 +176,9 @@ def optimise_and_confirm(
     if first.status == "unknown":
         return unknown()
     model = first.model
-    best = sign * model[OBJECTIVE]  # the best value found so far, as sign * objective
+    # The best value found so far, as sign * objective. For a Real objective it
+    # is the integer part, which that model reaches.
+    best = math.floor(sign * model[OBJECTIVE])
     above: int | None = None  # the least value proved out of reach, once one is
     step = 1
     while True:
@@ -176,14 +197,24 @@ def optimise_and_confirm(
             proof = found  # Z3's unsat for the last target
         else:
             model = found.model
-            best = sign * model[OBJECTIVE]
+            best = math.floor(sign * model[OBJECTIVE])
     value = sign * best
 
-    better = ">" if direction == "max" else "<"
-    confirm = "\n".join([*base, f"(assert ({better} {name} {_int(value)}))", "(check-sat)"]) + "\n"
-    cvc5_result = run("cvc5", confirm, timeout_ms)
+    if reals:
+        # Nothing at least one beyond the value, since Z3 proved that for the
+        # target just above it.
+        beyond = f"({at_least} {name} {_number(sign * (best + 1), sort)})"
+    else:
+        beyond = f"({'>' if direction == 'max' else '<'} {name} {_int(value)})"
+    confirm = "\n".join([*base, f"(assert {beyond})", "(check-sat)"]) + "\n"
+    cvc5_result = run("cvc5", confirm, timeout_ms, **read)
     if cvc5_result.status == "sat":
         what = f"cvc5 finds an objective {'above' if direction == 'max' else 'below'} {value}"
+        if reals:
+            what = (
+                f"cvc5 finds an objective at least 1 {'above' if direction == 'max' else 'below'}"
+                f" {value}"
+            )
         raise SolverDisagreement(proof, cvc5_result, f"{context}: {what}" if context else what)
     return Optimum(
         "optimal" if cvc5_result.status == "unsat" else "unknown",
@@ -199,16 +230,24 @@ def _int(value: int) -> str:
     return str(value) if value >= 0 else f"(- {-value})"
 
 
+def _number(value: int, sort: str) -> str:
+    """An SMT-LIB numeral of `sort` (Int or Real) for a whole number."""
+    return _int(value) if sort == "Int" else f"(- {-value}.0)" if value < 0 else f"{value}.0"
+
+
 def versions() -> dict[str, str]:
     return {"z3": _z3_version(), "cvc5": _cvc5_version(cvc5.Solver(cvc5.TermManager()))}
 
 
-def run(solver: Literal["z3", "cvc5"], script: str, timeout_ms: int) -> SolverResult:
+def run(
+    solver: Literal["z3", "cvc5"], script: str, timeout_ms: int, reals: bool = False
+) -> SolverResult:
+    """Run `script`. With `reals`, Real constants in a model are read as `Fraction`."""
     match solver:
         case "z3":
-            return _run_z3(script, timeout_ms)
+            return _run_z3(script, timeout_ms, reals)
         case "cvc5":
-            return _run_cvc5(script, timeout_ms)
+            return _run_cvc5(script, timeout_ms, reals)
     raise ValueError(f"unknown solver {solver!r}")
 
 
@@ -225,7 +264,7 @@ def _unquote(symbol: str) -> str:
     return symbol[1:-1] if symbol.startswith("|") else symbol
 
 
-def _run_z3(script: str, timeout_ms: int) -> SolverResult:
+def _run_z3(script: str, timeout_ms: int, reals: bool = False) -> SolverResult:
     version = _z3_version()
     # A fresh context per call: Z3's shared main context keeps state between
     # calls that changes the search, so results would depend on what ran first.
@@ -250,12 +289,15 @@ def _run_z3(script: str, timeout_ms: int) -> SolverResult:
             values[name] = model.eval(z3.Int(name, ctx), model_completion=True).as_long()
         elif sort == "Bool":
             values[name] = z3.is_true(model.eval(z3.Bool(name, ctx), model_completion=True))
+        elif sort == "Real" and reals:
+            real = model.eval(z3.Real(name, ctx), model_completion=True)
+            values[name] = Fraction(real.numerator_as_long(), real.denominator_as_long())
         else:
             raise SolverError(f"z3 model value for {name} has sort {sort}; expected Int or Bool")
     return SolverResult("sat", values, version)
 
 
-def _run_cvc5(script: str, timeout_ms: int) -> SolverResult:
+def _run_cvc5(script: str, timeout_ms: int, reals: bool = False) -> SolverResult:
     tm = cvc5.TermManager()
     engine = cvc5.Solver(tm)
     version = _cvc5_version(engine)
@@ -290,6 +332,8 @@ def _run_cvc5(script: str, timeout_ms: int) -> SolverResult:
             values[name] = value.getBooleanValue()
         elif sort.isInteger():
             values[name] = int(value.getIntegerValue())
+        elif sort.isReal() and reals:
+            values[name] = Fraction(str(value.getRealValue()))
         else:
             raise SolverError(f"cvc5 model value for {name} has sort {sort}; expected Int or Bool")
     return SolverResult("sat", values, version)

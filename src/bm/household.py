@@ -31,7 +31,7 @@ A script for two households, the second earning 100 pence more:
 from dataclasses import dataclass, field
 
 from bm.inputs import Bound
-from bm.translate import SORTS, SmtModule, apply, literal, quote
+from bm.translate import SmtModule, apply, literal, quote
 
 
 def smt_sum(terms: list[str]) -> str:
@@ -85,12 +85,12 @@ class Script:
 
     def __init__(self, module: SmtModule, bounds: dict[str, Bound] | None = None):
         self.module = module
-        self.sorts = {v.name: SORTS[v.type] for v in module.inputs}
+        self.sorts = module.sorts
         self.bounds = dict(bounds or {})
         if unknown := sorted(set(self.bounds) - set(self.sorts)):
             raise ValueError(f"bounds for unknown inputs {unknown}")
         for name in self.bounds:
-            if self.sorts[name] != "Int":
+            if self.sorts[name] not in ("Int", "Real"):
                 raise ValueError(f"{name} is {self.sorts[name]}, which takes no bound")
         self._prefixes: set[str] = set()
         self._declared: set[str] = set()
@@ -133,7 +133,7 @@ class Script:
         for name, term in equal.items():
             self.add(f"(assert (= {inputs[name]} {term}))")
         for name, bound in self.bounds.items():
-            self.bound(inputs[name], bound)
+            self.bound(inputs[name], bound, self.sorts[name])
         instance = Instance(prefix, inputs, self.module)
         if defined:
             for i in range(len(self.module.obligations)):
@@ -158,9 +158,9 @@ class Script:
             self.add(f"(assert (= {const} {term}))")
         return const
 
-    def bound(self, term: str, bound: Bound) -> None:
-        """Assert that `term` lies within `bound`, inclusive."""
-        lo, hi = literal("Int", bound.min), literal("Int", bound.max)
+    def bound(self, term: str, bound: Bound, sort: str = "Int") -> None:
+        """Assert that `term` (of `sort`, Int or Real) lies within `bound`, inclusive."""
+        lo, hi = literal(sort, bound.min), literal(sort, bound.max)
         self.add(f"(assert (<= {lo} {term} {hi}))")
 
     def add(self, line: str) -> None:

@@ -1,3 +1,4 @@
+from fractions import Fraction
 import time
 from importlib.metadata import version
 
@@ -281,3 +282,41 @@ def test_z3_runs_in_a_fresh_context(monkeypatch):
         assert solvers.run("z3", SAT, 10_000).model == {"a b": 5, "flag": True}
     assert len(contexts) == 2 and contexts[0] is not contexts[1]
     assert all(c is not z3.main_ctx() for c in contexts)
+
+
+REAL_BOX = ["(declare-const x Real)", "(assert (<= 0.0 x 2.5))"]
+
+
+@pytest.mark.parametrize("direction", ["max", "min"])
+def test_real_objective_gives_the_largest_reachable_integer(direction):
+    # The supremum of x is 5/2 and its infimum is 0. The value is the integer
+    # the search proves reachable that is furthest in the direction: 2 for the
+    # maximum and 0 for the minimum.
+    result = solvers.optimise_and_confirm(REAL_BOX, "x", direction, 10_000, sort="Real")
+    assert result.status == "optimal" and result.confirmed
+    assert result.value == (2 if direction == "max" else 0)
+    assert isinstance(result.model["x"], Fraction)
+    assert Fraction(result.value) - 1 < result.model["x"] < Fraction(5, 2) + 1
+    assert result.model["bm.objective"] == result.model["x"]
+
+
+def test_real_objective_below_an_integer_is_not_confirmed_optimal_early():
+    # x < 3 exactly: no real value reaches 3, but every integer below is reachable.
+    lines = ["(declare-const x Real)", "(assert (and (<= 0.0 x) (< x 3.0)))"]
+    result = solvers.optimise_and_confirm(lines, "x", "max", 10_000, sort="Real")
+    assert (result.status, result.value, result.confirmed) == ("optimal", 2, True)
+
+
+def test_real_sort_must_be_named():
+    with pytest.raises(solvers.SolverError):
+        solvers.optimise_and_confirm(REAL_BOX, "x", "max", 10_000)
+    with pytest.raises(ValueError):
+        solvers.optimise_and_confirm(REAL_BOX, "x", "max", 10_000, sort="Float")
+
+
+@pytest.mark.parametrize("solver", SOLVERS)
+def test_real_constants_are_read_as_fractions_when_asked(solver):
+    script = "(declare-const r Real)\n(assert (= r (/ 11.0 2.0)))\n(check-sat)"
+    result = solvers.run(solver, script, 10_000, reals=True)
+    assert result.model == {"r": Fraction(11, 2)}
+    assert isinstance(result.model["r"], Fraction)
