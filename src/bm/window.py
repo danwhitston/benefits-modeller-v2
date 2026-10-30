@@ -5,20 +5,35 @@ A window is a run of consecutive monthly assessment periods of the
 probe. A fixed total of earnings is split between the periods. The query asks,
 for each case of what DWP decides, how much more (the gain) or less (the loss)
 the award over the window can be through the timing alone, compared with the
-even split of the same total. The design is
+even split of the same total; how far apart two splits of the same total can
+be (the spread); and what a claimant paid every four weeks gains or loses when
+two paydays fall in one period (the extra payday figures). The design is
 `docs/superpowers/specs/2026-10-29-nil-assessment-periods-design.md`, sections
 "The window and its limits" and "5. Window query".
 
 **Copies.** One script holds several copies of the window, each a household
 of the scope with the same facts, case and period starts:
 
-- `split`: earnings free in each period, summing to the total;
+- `split`, `a` and `b`: earnings free in each period, summing to the total;
 - `even`: the total split as evenly as possible to the penny, the remainder in
-  the earliest periods: `(div W n)` plus 1 in period k when k <= `(mod W n)`.
+  the earliest periods: `(div W n)` plus 1 in period k when k <= `(mod W n)`;
+- `payday`: earnings (P, 2P, P) for a free payday amount P within the
+  earnings bound, with the total W = 4P, so that `even` is the same four
+  payments spread evenly. Only for 3 periods.
 
-The gain is total_award(split) - total_award(even), and the loss the reverse.
-Each is maximised on its own, in each case, in its own script. The split may
-equal the even split, so neither is negative.
+| Figure | Objective | Copies |
+|---|---|---|
+| gain | total_award(split) - total_award(even), maximised | split, even |
+| loss | total_award(even) - total_award(split), maximised | even, split |
+| spread | total_award(a) - total_award(b), maximised | a, b, and even |
+| extra_payday_max | total_award(even) - total_award(payday), maximised | even, payday |
+| extra_payday_min | the same, minimised | even, payday |
+
+Each figure is optimised on its own, in each case, in its own script. The
+split may equal the even split, and a may equal b, so the gain, the loss and
+the spread are never negative. The spread's script holds an even copy outside
+its objective, so that the spread, like the gain and the loss, ranges only
+over the households and totals whose even split keeps the last-period rule.
 
 **The last-period rule.** Every copy's award in the last period must be at
 least 1p, so that the effects of a nil period (the end of the award, the
@@ -27,7 +42,16 @@ same for every copy: a live award with no surplus. Without the rule the
 solver can put the nil period last, where the surplus falls outside the window,
 and the gain is overstated. Splits that break the rule are outside every
 figure, and the result says so (`excluded`). Where the even split itself
-breaks it, the case has no figure.
+breaks it, the case has no figures. Where the pattern (P, 2P, P) breaks it for
+every payday amount, the case has no extra payday figure that keeps the rule.
+
+**Lower bounds.** In a case with no claim after the award ends
+(`claim_after_end` false), a loss carries on past the window until a fresh
+claim, so no window bounds it. There the copy whose award is subtracted drops
+the last-period rule: split in the loss, b in the spread, and payday in
+`extra_payday_max`. Those figures are lower bounds (`Figure.lower_bound`). The
+even copy, and every copy of the gain and of `extra_payday_min`, keep the rule
+in every case.
 
 **Facts and starts.** Household facts the caller does not fix are free, and
 shared by every copy (`bm.household.facts`). The judgement points the caller
@@ -66,6 +90,7 @@ and are never findings. A relaxed probe is not replayed, because Catala rounds
 and the relaxed translation does not.
 """
 
+import dataclasses
 import re
 from dataclasses import dataclass
 from datetime import date
@@ -96,9 +121,24 @@ REALISTIC = {"claim_after_end": True, "claim_each_month": True, "lcw_carries_ove
 
 FINDING_PERIODS = 3
 MAX_PERIODS = 6
-# The copies of each figure built so far: the objective is the first copy's
-# total award less the second's.
-_COPIES = {"gain": ("split", "even"), "loss": ("even", "split")}
+PAYDAY = ("extra_payday_max", "extra_payday_min")
+# The copies of each figure: the objective is the first copy's total award less
+# the second's.
+_COPIES = {
+    "gain": ("split", "even"),
+    "loss": ("even", "split"),
+    "spread": ("a", "b"),
+    "extra_payday_max": ("even", "payday"),
+    "extra_payday_min": ("even", "payday"),
+}
+# Copies a figure's script holds outside its objective.
+_ALSO = {"spread": ("even",)}
+_DIRECTION: dict[str, Literal["max", "min"]] = {
+    name: "min" if name == "extra_payday_min" else "max" for name in _COPIES
+}
+# The copy that drops the last-period rule, in a case with no claim after the
+# end, making the figure a lower bound.
+_SUBTRACTED = {"loss": "split", "spread": "b", "extra_payday_max": "payday"}
 # The per-period outputs a witness trace records, besides the earnings.
 _TRACED = (
     "earnings_used",
@@ -112,6 +152,8 @@ _EARNINGS = re.compile(r"earnings_([0-9]+)")
 _LAST_RULE = (
     "Splits whose last period has an award below 1p are outside every figure"
     " (the last-period rule), so that the effects of a nil period end inside the window."
+    " In a case with no claim after the award ends, the copy that the loss, the spread"
+    " and extra_payday_max subtract is exempt, and those figures are lower bounds."
 )
 _RELAXED_SKIP = (
     "skipped: the relaxed translation does not round to the penny, and Catala does,"
@@ -148,11 +190,14 @@ class Figure:
     `value` is Z3's optimum in pence, or None where there is none. `status` is
     "optimal" when cvc5 confirmed it; "unknown" when Z3 found no optimum in
     time, or cvc5 could not confirm Z3's (the value is then kept); and
-    "infeasible" when both solvers found that the even split breaks the
-    last-period rule, so the case has no figure (`WindowResult.excluded` says
-    so). "unknown" never means no gain or no loss. `lower_bound` is True where
-    the figure is a lower bound ("at least"). `witnesses` hold the copies at the
-    optimum, in the order of the objective.
+    "infeasible" when both solvers found that no copies keep the last-period
+    rule: the even split breaks it, so the case has no figures, or, for an
+    extra payday figure, every payday amount does (`WindowResult.excluded`
+    says which). "unknown" never means no gain, no loss or no difference.
+    `lower_bound` is True where the figure is a lower bound ("at least"): the
+    loss, the spread and `extra_payday_max` in a case with no claim after the
+    end, whatever the status. `witnesses` hold the copies at the optimum, in
+    the order of the objective (not the spread's even copy).
     """
 
     value: int | None
@@ -187,10 +232,13 @@ class WindowResult:
     was free (each witness then shows its own). `fixed` is the caller's fixed
     values with those that `close_fixed` adds. `cases` are in the order of
     `bm.strategic.cases`, with the realistic ones moved first. `excluded` says
-    in words what the last-period rule left out.
+    in words what the last-period rule left out: always a general note on the
+    rule first, then one note for each case whose even split breaks it, and
+    one for each extra payday figure that no payday amount keeps it for.
 
     `verification` has "cvc5": "confirmed" when cvc5 confirmed every figure
-    (an optimum, or the infeasibility of an even split), otherwise "unknown";
+    (an optimum, or that no copies keep the last-period rule), otherwise
+    "unknown";
     and "replay" and "replayed", which `replay` fills in: "not run" until it
     runs.
     """
@@ -238,31 +286,44 @@ def window(
     """Each figure in each case, for a window of the module's length.
 
     `total` fixes the total of earnings over the window, in pence; it is
-    otherwise free within the earnings bound times the number of periods.
+    otherwise free within the earnings bound times the number of periods. For
+    the extra payday figures the total is 4P: a fixed total fixes P, and must
+    be a multiple of 4.
     `fixed` gives household facts or judgement points a value, in SMT units;
     the starts and the earnings cannot be fixed. `timeout_ms` applies to each
     optimisation (one per figure and case). The result is not replayed: call
     `replay` for that.
 
     Raises `QueryRefused`, before any solver runs, for a window longer than 3
-    periods or a relaxed module without `probe`, a start whose last period is
-    after `LAST_START` or outside the inputs' bounds, more cases than `cap`,
-    or inputs it cannot answer for. Raises `NotImplementedError` for a figure
-    that is not built yet. Raises `NoHousehold` when the even split ends the
-    window at nil in every case, and `SolverDisagreement` when cvc5 finds
-    better than Z3's optimum.
+    periods or a relaxed module without `probe`, an extra payday figure for a
+    window longer than 3 periods (even with `probe`) or with a fixed total
+    that is not a multiple of 4, a start whose last period is after
+    `LAST_START` or outside the inputs' bounds, more cases than `cap`, or
+    inputs it cannot answer for. Raises `NoHousehold` when the even split ends
+    the window at nil in every case, and `SolverDisagreement` when the solvers
+    disagree: cvc5 finds better than Z3's optimum, or one finds copies that
+    keep the last-period rule where the other proves there are none.
     """
     for name in figures:
         if name not in FIGURES:
             raise QueryRefused(f"{name} is not a figure; the figures are {', '.join(FIGURES)}")
     if not figures:
         raise QueryRefused("no figures were asked for")
-    if pending := [name for name in figures if name not in _COPIES]:
-        raise NotImplementedError(f"the window query does not yet compute {', '.join(pending)}")
     periods = periods_of(module)
     if not FINDING_PERIODS <= periods <= MAX_PERIODS:
         raise QueryRefused(
             f"a window of {periods} periods is outside {FINDING_PERIODS} to {MAX_PERIODS}"
+        )
+    payday = [name for name in figures if name in PAYDAY]
+    if payday and periods != FINDING_PERIODS:
+        raise QueryRefused(
+            f"{', '.join(payday)} compare the pattern (P, 2P, P), which needs a window of"
+            f" {FINDING_PERIODS} periods, not {periods}"
+        )
+    if payday and total is not None and total % 4:
+        raise QueryRefused(
+            f"{', '.join(payday)} need a total of 4P, so a fixed total must be a multiple"
+            f" of 4 pence, not {total}"
         )
     if periods > FINDING_PERIODS and not probe:
         raise QueryRefused(
@@ -294,18 +355,36 @@ def window(
         ((case, _realistic(specs, given, case)) for case in all_cases), key=lambda c: not c[1]
     )
     build = _Builder(module, specs, closed, starts, periods, total, whole)
+    for case in all_cases:
+        build.claim_after_end(case)  # refuses, before any solver, where it has no value
     results = []
     excluded = [_LAST_RULE]
+    whom = _whom(given, total)
     for case, realistic in ordered:
         found = {name: build.figure(name, case, timeout_ms) for name in figures}
-        if any(f.status == "infeasible" for f in found.values()):
+        if build.even_verdict(case) == "excluded":
+            # Both solvers proved that the even copy alone breaks the rule, so
+            # no figure of the case has copies that keep it, even one whose own
+            # optimisation was unknown.
+            found = {
+                name: dataclasses.replace(f, status="infeasible", value=None, witnesses=[])
+                for name, f in found.items()
+            }
             excluded.append(
                 f"In the case {case_label(case)}, the even split ends the window at nil"
-                f" for {_whom(given, total)}, so the case has no figures."
+                f" for {whom}, so the case has no figures."
+            )
+        else:
+            excluded.extend(
+                f"In the case {case_label(case)}, no payday amount P keeps the last-period"
+                f" rule on the even split of 4P and the pattern (P, 2P, P) for {whom},"
+                f" so the case has no {name}."
+                for name, f in found.items()
+                if f.status == "infeasible"
             )
         results.append(CaseResult(case, realistic, found))
     every = [f for c in results for f in c.figures.values()]
-    if all(f.status == "infeasible" for f in every):
+    if all(build.even_verdict(c.case) == "excluded" for c in results):
         raise NoHousehold(
             f"the even split ends the window at nil in every case, for {_whom(given, total)}:"
             " its last period has an award below 1p, which the last-period rule excludes"
@@ -410,9 +489,21 @@ class _Builder:
     def _as_money(self, term: str) -> str:
         return term if self.money == "Int" else f"(to_real {term})"
 
-    def _copy(self, script: Script, name: str, base: dict[str, str], whole: str) -> _Copy:
+    def _copy(
+        self,
+        script: Script,
+        name: str,
+        base: dict[str, str],
+        whole: str,
+        pay: str | None = None,
+        last_rule: bool = True,
+    ) -> _Copy:
         n = self.periods
-        if name == "even":
+        if name == "payday":
+            pattern = {1: pay, 2: f"(* 2 {pay})", 3: pay}
+            shares = {f"earnings_{k}": self._as_money(term) for k, term in pattern.items()}
+            instance = script.instance(name, equal={**base, **shares})
+        elif name == "even":
             shares = {
                 f"earnings_{k}": self._as_money(
                     f"(+ (div {whole} {n}) (ite (<= {k} (mod {whole} {n})) 1 0))"
@@ -435,36 +526,91 @@ class _Builder:
         total = script.declare(
             f"bm.{name}.total_award", outputs["total_award"], instance.output("total_award")
         )
-        last = trace["award", n]
-        script.add(f"(assert (>= {last} {literal(outputs[f'award_{n}'], 1)}))")
+        if last_rule:
+            last = trace["award", n]
+            script.add(f"(assert (>= {last} {literal(outputs[f'award_{n}'], 1)}))")
         return _Copy(name, instance, trace, total)
 
+    def claim_after_end(self, case: dict[str, bool]) -> bool:
+        value = case.get("claim_after_end", self.fixed.get("claim_after_end"))
+        if not isinstance(value, bool):
+            raise QueryRefused(
+                "claim_after_end is neither fixed nor a judgement point of the case,"
+                " so the lower-bound rule cannot be applied"
+            )
+        return value
+
+    def even_verdict(self, case: dict[str, bool]) -> str | None:
+        """The even-copy check's verdict for the case, or None where it has not run."""
+        return self._even_ok.get(tuple(sorted(case.items())))
+
     def figure(self, name: str, case: dict[str, bool], timeout_ms: int) -> Figure:
+        lower = name in _SUBTRACTED and not self.claim_after_end(case)
+        if self.even_verdict(case) == "excluded":
+            return Figure(None, "infeasible", lower, [])
         script, base, whole = self._script(case)
-        copies = [self._copy(script, copy, base, whole) for copy in _COPIES[name]]
+        pay = None
+        if name in PAYDAY:
+            pay = script.declare(
+                "bm.payday", "Int", None if self.total is None else literal("Int", self.total // 4)
+            )
+            script.bound(pay, self.specs["earnings_1"].bound)
+            script.add(f"(assert (= {whole} (* 4 {pay})))")
+        dropped = _SUBTRACTED[name] if lower else None
+        copies = [
+            self._copy(script, copy, base, whole, pay, last_rule=copy != dropped)
+            for copy in _COPIES[name]
+        ]
+        for copy in _ALSO.get(name, ()):
+            self._copy(script, copy, base, whole, pay)
         objective = f"(- {copies[0].total} {copies[1].total})"
         what = f"in the case {case_label(case)}"
+        direction = _DIRECTION[name]
+        beyond = "above Z3's maximum" if direction == "max" else "below Z3's minimum"
         optimum = solvers.optimise_and_confirm(
             script.lines,
             objective,
-            "max",
+            direction,
             timeout_ms,
-            f"a {name} above Z3's maximum {what}",
+            f"a {name} {beyond} {what}",
             sort=self.money,
         )
         if optimum.status == "infeasible":
             even = self._even(case, timeout_ms)
             if even == "excluded":
-                return Figure(None, "infeasible", False, [])
+                return Figure(None, "infeasible", lower, [])
             if even == "unknown":
-                return Figure(None, "unknown", False, [])
-            raise RuntimeError(
-                f"the even split keeps the last-period rule {what}, but no split has a {name}:"
-                " the split can equal the even split, so this is a bug in the encoding"
+                return Figure(None, "unknown", lower, [])
+            if name not in PAYDAY:
+                raise RuntimeError(
+                    f"the even split keeps the last-period rule {what}, but no copies of the"
+                    f" {name} do: they can all equal the even split, so this is a bug in the"
+                    " encoding"
+                )
+            # The pattern (P, 2P, P) can break the rule where the even split keeps it.
+            found = self._unsat(
+                script.text(), timeout_ms, f"whether any payday amount has a {name} {what}"
             )
+            if found == "sat":
+                raise RuntimeError(
+                    f"Z3 first found no payday amount with a {name} {what}, and then both"
+                    " solvers found one"
+                )
+            return Figure(None, "infeasible" if found == "unsat" else "unknown", lower, [])
         witnesses = [] if optimum.model is None else [_witness(c, optimum.model) for c in copies]
         status = "optimal" if optimum.status == "optimal" else "unknown"
-        return Figure(optimum.value, status, False, witnesses)
+        return Figure(optimum.value, status, lower, witnesses)
+
+    def _unsat(self, text: str, timeout_ms: int, what: str) -> Literal["sat", "unsat", "unknown"]:
+        """Whether a script is unsat: both solvers must agree, or the answer is unknown."""
+        reals = self.money == "Real"
+        z3_result = solvers.run("z3", text, timeout_ms, reals=reals)
+        cvc5_result = solvers.run("cvc5", text, timeout_ms, reals=reals)
+        if {z3_result.status, cvc5_result.status} == {"sat", "unsat"}:
+            raise solvers.SolverDisagreement(z3_result, cvc5_result, what)
+        if z3_result.status == cvc5_result.status and z3_result.status in ("sat", "unsat"):
+            return z3_result.status
+        return "unknown"
 
     def _even(self, case: dict[str, bool], timeout_ms: int) -> str:
         """Whether the even copy alone keeps the last-period rule: both solvers must agree."""
@@ -472,20 +618,10 @@ class _Builder:
         if key not in self._even_ok:
             script, base, whole = self._script(case)
             self._copy(script, "even", base, whole)
-            text = script.text()
-            reals = self.money == "Real"
-            z3_result = solvers.run("z3", text, timeout_ms, reals=reals)
-            cvc5_result = solvers.run("cvc5", text, timeout_ms, reals=reals)
-            if {z3_result.status, cvc5_result.status} == {"sat", "unsat"}:
-                raise solvers.SolverDisagreement(
-                    z3_result, cvc5_result, f"whether the even split ends the window at nil {case}"
-                )
-            if z3_result.status == cvc5_result.status == "unsat":
-                self._even_ok[key] = "excluded"
-            elif z3_result.status == cvc5_result.status == "sat":
-                self._even_ok[key] = "ok"
-            else:
-                self._even_ok[key] = "unknown"
+            found = self._unsat(
+                script.text(), timeout_ms, f"whether the even split ends the window at nil {case}"
+            )
+            self._even_ok[key] = {"unsat": "excluded", "sat": "ok", "unknown": "unknown"}[found]
         return self._even_ok[key]
 
 
