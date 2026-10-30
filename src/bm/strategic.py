@@ -6,8 +6,10 @@ how each input is treated:
 
 - **Judgement points.** An input whose `controlled_by` includes
   `decision_maker`, and which the caller has not fixed, is a judgement point.
-  The query expands the judgement points into every combination of their
-  values, one case per combination, and refuses above a cap (default 8).
+  An input with `applies_when` is fixed False when the point it names is fixed
+  False (`close_fixed`, which every query calls first). The query expands the
+  judgement points into every combination of their values, one case per
+  combination, and refuses above a cap (default 8).
 - **The choice.** `Split(input, periods=2)` makes the input's values in the two
   periods free, subject to a fixed total. The input must be money and its
   `controlled_by` must include `claimant` or `employer`; otherwise the query
@@ -122,35 +124,36 @@ _CHOOSERS = ("claimant", "employer")
 def judgement_points(specs: dict[str, InputSpec], fixed: dict[str, int | bool]) -> list[str]:
     """The unfixed inputs the decision maker controls, in scope order.
 
-    A point with an `applies_when` is left out when the caller has fixed the
-    point it depends on to False: it cannot matter, so it is not tried. The
-    caller must then fix it to False too, and `fixed_by_condition` gives the
-    values. When the parent is fixed True the child stays a point, and when the
-    parent is not fixed, `cases` pairs the two.
+    `fixed` should be the output of `close_fixed`, so that an input whose
+    `applies_when` point is fixed False is itself fixed, and so not a point.
     """
-    dropped = fixed_by_condition(specs, fixed)
     return [
         name
         for name, spec in specs.items()
-        if "decision_maker" in spec.controlled_by and name not in fixed and name not in dropped
+        if "decision_maker" in spec.controlled_by and name not in fixed
     ]
 
 
-def fixed_by_condition(
+def close_fixed(
     specs: dict[str, InputSpec], fixed: dict[str, int | bool]
-) -> dict[str, bool]:
-    """The inputs a fixed condition fixes to False: those whose `applies_when`
-    point the caller has fixed False and which the caller has not fixed.
+) -> dict[str, int | bool]:
+    """`fixed`, plus each unfixed input whose `applies_when` point is fixed False, as False.
 
-    Empty when no spec has an `applies_when`, as for `rules/uc.inputs.toml`.
+    An input that applies only when another is true cannot matter once that
+    other is fixed False, so it is fixed False too. If it were left free it
+    would become a free fact in the query, which is wrong. Every query must call
+    this once, at the top, on the caller's fixed values and use the result
+    throughout (for `judgement_points`, `cases` and the facts). A point fixed
+    True leaves its dependants free, and a dependant the caller fixed keeps the
+    caller's value. Returns a new dict. Changes nothing when no spec has an
+    `applies_when`, as for `rules/uc.inputs.toml`.
     """
-    return {
-        name: False
-        for name, spec in specs.items()
-        if spec.applies_when is not None
-        and name not in fixed
-        and fixed.get(spec.applies_when) is False
-    }
+    closed = dict(fixed)
+    for name, spec in specs.items():
+        parent = spec.applies_when
+        if parent is not None and name not in fixed and parent in fixed and not fixed[parent]:
+            closed[name] = False
+    return closed
 
 
 def cases(
@@ -304,7 +307,7 @@ def timing(
     better gain than Z3's optimum, and `ReplayMismatch` if Catala's award at a
     witness differs from Z3's.
     """
-    fixed = dict(fixed or {})
+    fixed = close_fixed(specs, fixed or {})
     check_choice(specs, choice)
     for name in fixed:
         if name not in specs:
@@ -554,7 +557,7 @@ def judgement_value(
     `SolverDisagreement` if cvc5 finds a better value than Z3's optimum, and
     `ReplayMismatch` if Catala's award at a witness differs from Z3's.
     """
-    fixed = dict(fixed or {})
+    fixed = close_fixed(specs, fixed or {})
     for name in fixed:
         if name not in specs:
             raise QueryRefused(f"{name} is not an input, so it cannot be fixed")

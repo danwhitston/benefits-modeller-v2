@@ -17,8 +17,10 @@ Two further keys are optional:
 - `per_period = true`, on a money, date or integer input named `<base>`. The
   loader replaces the entry with one for each input of the scope named
   `<base>_1`, `<base>_2` and so on, each with the same bounds and labels, so
-  that one file serves scopes of different lengths. An entry that matches no
-  input of the scope is refused, as is one that clashes with an explicit entry.
+  that one file serves scopes of different lengths. The scope's inputs must be
+  exactly `<base>_1` to `<base>_n` with no gaps, and every per-period entry
+  must give the same n. An entry that matches no input of the scope is
+  refused, as is one that clashes with an explicit entry.
 - `applies_when = "<name>"`, on a Boolean judgement point (a Boolean input
   whose `controlled_by` includes `decision_maker`). `<name>` must be another
   Boolean judgement point that has no `applies_when` itself, so conditions do
@@ -90,6 +92,7 @@ def load(path: Path, scope: Scope) -> dict[str, InputSpec]:
 def _expand_per_period(path: Path, tables: dict, types: dict[str, str]) -> dict:
     """The tables with each per-period entry replaced by one per matching input."""
     expanded: dict = {}
+    lengths: dict[str, int] = {}
     for name, table in tables.items():
         if not isinstance(table, dict) or "per_period" not in table:
             continue
@@ -101,16 +104,28 @@ def _expand_per_period(path: Path, tables: dict, types: dict[str, str]) -> dict:
                 f"{where}: per_period applies to money, date and integer inputs, "
                 f"not {table.get('type')!r}"
             )
-        pattern = re.compile(rf"{re.escape(name)}_[0-9]+")
+        pattern = re.compile(rf"{re.escape(name)}_([1-9][0-9]*)")
         matches = [n for n in types if pattern.fullmatch(n)]
         if not matches:
             raise InputsError(f"{where}: per_period entry matches no input of the scope")
+        numbers = sorted(int(pattern.fullmatch(n).group(1)) for n in matches)
+        if numbers != list(range(1, len(numbers) + 1)):
+            raise InputsError(
+                f"{where}: the scope's {name} inputs must be {name}_1 to {name}_n with no gaps, "
+                f"but are numbered {numbers}"
+            )
+        lengths[name] = len(numbers)
         for match in matches:
             if match in tables:
                 raise InputsError(
                     f"{where}: per_period would define {match}, which has its own entry"
                 )
             expanded[match] = {k: v for k, v in table.items() if k != "per_period"}
+    if len(set(lengths.values())) > 1:
+        raise InputsError(
+            f"{path}: per_period inputs must cover the same number of periods, "
+            f"but the scope has {lengths}"
+        )
     kept = {
         n: t for n, t in tables.items() if not (isinstance(t, dict) and "per_period" in t)
     }

@@ -21,7 +21,7 @@ from bm.strategic import (
     TimingResult,
     cases,
     check_choice,
-    fixed_by_condition,
+    close_fixed,
     judgement_points,
     judgement_value,
     period_starts,
@@ -100,46 +100,61 @@ def test_window_cases_refused_above_the_cap():
 
 
 def test_fixing_has_lcw_false_leaves_three_cases():
-    # The caller fixes has_lcw False; lcw_carries_over is then not a point and
-    # `fixed_by_condition` gives the value the caller must fix it at.
-    specs, fixed = WINDOW_SPECS, {"has_lcw": False}
+    # close_fixed also fixes lcw_carries_over False, so it is no longer a point.
+    specs = WINDOW_SPECS
+    fixed = close_fixed(specs, {"has_lcw": False})
+    assert fixed == {"has_lcw": False, "lcw_carries_over": False}
     points = judgement_points(specs, fixed)
     assert points == ["claim_after_end", "claim_each_month"]
     assert len(cases(specs, points, cap=12)) == 3
-    assert fixed_by_condition(specs, fixed) == {"lcw_carries_over": False}
 
 
 def test_fixing_has_lcw_true_keeps_the_child_a_point():
-    specs, fixed = WINDOW_SPECS, {"has_lcw": True}
+    specs = WINDOW_SPECS
+    fixed = close_fixed(specs, {"has_lcw": True})
+    assert fixed == {"has_lcw": True}
     points = judgement_points(specs, fixed)
     assert points == ["claim_after_end", "claim_each_month", "lcw_carries_over"]
     assert len(cases(specs, points, cap=12)) == 6
-    assert fixed_by_condition(specs, fixed) == {}
 
 
 def test_fixing_claim_after_end_false_removes_claim_each_month():
-    specs, fixed = WINDOW_SPECS, {"claim_after_end": False}
+    specs = WINDOW_SPECS
+    fixed = close_fixed(specs, {"claim_after_end": False})
+    assert fixed == {"claim_after_end": False, "claim_each_month": False}
     points = judgement_points(specs, fixed)
     assert points == ["has_lcw", "lcw_carries_over"]
     assert len(cases(specs, points, cap=12)) == 3
-    assert fixed_by_condition(specs, fixed) == {"claim_each_month": False}
 
 
 def test_fixing_a_child_directly_leaves_the_parent():
-    specs, fixed = WINDOW_SPECS, {"lcw_carries_over": True}
+    specs = WINDOW_SPECS
+    fixed = close_fixed(specs, {"lcw_carries_over": True})
+    assert fixed == {"lcw_carries_over": True}
     points = judgement_points(specs, fixed)
     assert points == ["has_lcw", "claim_after_end", "claim_each_month"]
-    assert fixed_by_condition(specs, fixed) == {}
     assert len(cases(specs, points, cap=12)) == 6
 
 
-def test_fixed_by_condition_leaves_a_fixed_child_alone():
+def test_close_fixed_leaves_a_fixed_child_alone():
     fixed = {"has_lcw": False, "lcw_carries_over": True}
-    assert fixed_by_condition(WINDOW_SPECS, fixed) == {}
+    assert close_fixed(WINDOW_SPECS, fixed) == fixed
 
 
-def test_fixed_by_condition_is_empty_for_milestone_2():
-    assert fixed_by_condition(SPECS, {"has_lcw": False}) == {}
+def test_close_fixed_treats_a_falsy_zero_as_false():
+    assert close_fixed(WINDOW_SPECS, {"has_lcw": 0})["lcw_carries_over"] is False
+
+
+def test_close_fixed_does_not_change_its_argument():
+    fixed = {"has_lcw": False}
+    close_fixed(WINDOW_SPECS, fixed)
+    assert fixed == {"has_lcw": False}
+
+
+def test_close_fixed_is_the_identity_for_milestone_2():
+    fixed = {"has_lcw": False}
+    assert close_fixed(SPECS, fixed) == fixed
+    assert close_fixed(SPECS, {}) == {}
 
 
 def test_cases_refuse_a_point_that_is_not_boolean():

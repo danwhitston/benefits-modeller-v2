@@ -1,3 +1,4 @@
+import dataclasses
 import json
 import re
 from datetime import date
@@ -256,3 +257,24 @@ def test_applies_when_on_itself_refused(tmp_path):
     _window_refusal(
         tmp_path, set_key("lcw_carries_over", "applies_when", "lcw_carries_over"), "itself"
     )
+
+
+def _renamed_scope(drop: set[str]) -> ir.Scope:
+    """The three-period window scope without the named inputs."""
+    base = window_scope()
+    return dataclasses.replace(base, inputs=[v for v in base.inputs if v.name not in drop])
+
+
+def test_a_gap_in_the_periods_refused():
+    with pytest.raises(inputs.InputsError, match="no gaps"):
+        inputs.load(WINDOW_INPUTS, _renamed_scope({"start_2", "earnings_2"}))
+
+
+def test_ragged_period_lengths_refused():
+    with pytest.raises(inputs.InputsError, match="same number of periods"):
+        inputs.load(WINDOW_INPUTS, _renamed_scope({"earnings_3"}))
+
+
+def test_periods_must_start_at_one():
+    with pytest.raises(inputs.InputsError, match="no gaps"):
+        inputs.load(WINDOW_INPUTS, _renamed_scope({"start_1", "earnings_1"}))
