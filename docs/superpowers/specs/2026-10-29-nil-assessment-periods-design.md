@@ -46,9 +46,9 @@ A single claimant with employed earnings reported through Real Time Information 
 
 - **The window starts in a live award,** with no surplus carried in.
 - **The last period's award must be at least 1p.** Without this rule the solver can put the nil period last, where the end of the award and any surplus fall outside the window, and the gain is overstated. The checking agent found this with the project's rates: for a claimant aged 25 or over, with LCW and a housing costs element of £804, earning £2,600 a period, the split (£0, £0, £7,800) shows a gain of £2,356.55 inside the window. Its true gain is £2,289.05, because the surplus takes the next two periods to nil, and the true maximum over all splits is £2,322.80. With the rule, any surplus is used up inside the window, because a surplus stops once an award is made (see [readings](#readings-this-design-rests-on)). The window's exit state is then the same as the even split's: a live award with no surplus.
-- **The exception: no claim after the award ends.** Where no claim is made, the loss continues past the window until a fresh claim, so no window bounds it. In those cases the loss, the spread and the extra payday figure are computed without the last-period rule and reported as lower bounds ("at least"). The gain keeps the rule in every case.
+- **The exception: no claim after the award ends.** Where no claim is made, the loss continues past the window until a fresh claim, so no window bounds it. In those cases the loss, the spread and the largest extra payday figure are computed without the last-period rule on the split they subtract, and reported as lower bounds ("at least"). The gain and the smallest extra payday figure keep the rule in every case.
 - **Every period begins on or before 31 March 2027,** so the £2,500 threshold applies throughout. This avoids an unresolved question: a chain of claims that crosses that date might, on a literal reading, measure its original surplus again against £300.
-- **Excluded splits are reported.** Splits that end the window at nil, and households whose even split does so, are outside the finding, and the report says so.
+- **Excluded splits are reported.** Splits that end the window at nil, and households whose even split does so, are outside the finding, and the report says so. A household's even split is excluded case by case, because whether it ends at nil can depend on the case. Every figure, the spread included, speaks only about households whose even split meets the last-period rule.
 
 ### Readings this design rests on
 
@@ -83,7 +83,7 @@ Gathered on 29 October 2026 by a research agent from official, research and advo
 
 **What this sets in the design:**
 
-- **The realistic case** is `claim_after_end` true, `claim_each_month` true and, where the claimant has an LCW finding, `lcw_carries_over` true. The report names it and gives its figures first. The other cases are stress cases: the account closed early, failed months not counted as claims, or the LCW finding lost.
+- **The realistic case** is `claim_after_end` true, `claim_each_month` true and, where the claimant has an LCW finding, `lcw_carries_over` true. With `has_lcw` free there are two realistic cases, one for each value. The report names them and gives their figures first. The other cases are stress cases: the account closed early, failed months not counted as claims, or the LCW finding lost.
 - **An extra payday figure** for the realistic class (see [Window query](#5-window-query-bmwindow)).
 - **Caveats** on every finding: passported help is not modelled; reported earnings are taken as exact, although RTI reports can be late or wrong; and findings that depend on the £2,500 level or on the 6-period closure practice are dated.
 
@@ -103,9 +103,9 @@ New sections after the per-period rules, each with the regulation text it implem
 - **A claim** is made in a period after the end when `claim_after_end` holds and `months_since_end` is between 1 and 5.
 - **The LCW finding used** is `has_lcw` in a live award, and `has_lcw and lcw_carries_over` after the end.
 - **Earnings used** are the period's earnings, plus the incoming surplus when a claim is made after the end.
-- **The period's figures** come from a sub-scope `period scope UniversalCredit`, called with the earnings used and the LCW finding used.
+- **The period's figures** come from a sub-scope `uc scope UniversalCredit`, called with the earnings used and the LCW finding used.
 - **The award** is the sub-scope's award in a live award or when a claim is made, and £0 otherwise. **Entitled** means an award of at least 1p, tested on the award itself rather than on the threshold, since the boundary lies about a penny below the threshold.
-- **The thresholds.** The nil UC threshold is the sub-scope's `maximum_amount` × (100 / 55), rounded once, plus its `work_allowance`. The relevant threshold adds £2,500 for a period beginning on or before 31 March 2027 and £300 for a later one.
+- **The thresholds.** The nil UC threshold is the sub-scope's `maximum_amount` divided by 0.55, rounded once, plus its `work_allowance` (a ruling during execution: the same value as × 100/55, written as a division by a constant, which the translator accepts). The relevant threshold adds £2,500 for a period beginning on or before 31 March 2027 and £300 for a later one.
 - **The outgoing state:**
   - `live` next is `entitled`.
   - `months_since_end` next is 0 if entitled, 1 if this period ended a live award, and one more than now otherwise.
@@ -150,7 +150,7 @@ A test checks that every input shared with `uc.inputs.toml` (age, housing, LCW, 
 
 In Catala 1.3.0's default calculus a declared sub-scope appears as a scope variable definition of the sub-scope's struct type, whose expression applies the sub-scope's function to its input struct. Later uses are struct accesses on that variable. The exporter refuses this today, at the application. Checked on 29 October 2026 with throwaway probes (the plan, ruling 3).
 
-- **Inlining.** On such a definition, the exporter finds the called scope's body in the same program and walks it with the existing walker, prefixing every name with the sub-scope's name (`step_1.period.award`). Each of the sub-scope's inputs becomes a definition whose expression is the caller's argument. Field accesses such as `step_1.award` become references to the prefixed definitions. Inlining nests, so a window, its steps and their `UniversalCredit` periods export as one flat list.
+- **Inlining.** On such a definition, the exporter finds the called scope's body in the same program and walks it with the existing walker, prefixing every name with the sub-scope's name (`step_1.uc.award`). Each of the sub-scope's inputs becomes a definition whose expression is the caller's argument. Field accesses such as `step_1.award` become references to the prefixed definitions. Inlining nests, so a window, its steps and their `UniversalCredit` periods export as one flat list.
 - **Still refused,** with the existing "Unsupported construct" error: the direct form `output of <Scope> with { ... }`, calls across modules, and recursion.
 - **bm-ir version 1.** The node types do not change. `inputs` holds the top scope's inputs only. `definitions` includes the prefixed definitions of sub-scopes, still in dependency order. The version changes because a name no longer has to be a variable of the top scope. `docs/bm-ir.md` documents the naming rule.
 - **`make export`** also writes `build/claim_window.bm-ir.json` and the three probe scopes. The `UniversalCredit` export is unchanged, for the milestone 1 and 2 queries and the differential check.

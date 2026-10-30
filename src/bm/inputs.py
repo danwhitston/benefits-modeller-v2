@@ -25,7 +25,7 @@ Two further keys are optional:
   whose `controlled_by` includes `decision_maker`). `<name>` must be another
   Boolean judgement point that has no `applies_when` itself, so conditions do
   not chain. The input matters only when `<name>` is true; see
-  `bm.strategic.judgement_points`, `fixed_by_condition` and `cases`.
+  `bm.strategic.judgement_points`, `close_fixed` and `cases`.
 """
 
 import re

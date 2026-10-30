@@ -92,3 +92,37 @@ the Catala test row with a £500.00 element, and one random household.
 The housing costs element is bounded at £804.00 a month in
 `rules/uc.inputs.toml`, so that no modelled household reaches the benefit cap,
 which the rules do not model. See the benefit cap in `docs/model-gaps.md`.
+
+## 2. Windows with a nil assessment period are not compared
+
+- **Classification:** deliberate difference: PolicyEngine UK does not model
+  the rules that cross assessment periods.
+- **Date:** 30 October 2026. policyengine-uk 2.164.2, Catala 1.3.0.
+- **Which households:** every window of the `ClaimWindow` scope (3
+  consecutive assessment periods) in which earnings take a period to a nil
+  award, so that the end of the award, the claims treated as made under
+  [regulation 32A](https://www.legislation.gov.uk/uksi/2013/380/regulation/32A)
+  of the Claims and Payments Regulations 2013, or surplus earnings under
+  [regulation 54A](https://www.legislation.gov.uk/uksi/2013/376/regulation/54A)
+  of the Universal Credit Regulations 2013 apply.
+- **Why there is no comparison.** PolicyEngine UK 2.164.2 has no surplus
+  earnings rule and no rule for the end of an award or for a claim treated as
+  made: no variable or parameter in the installed package names surplus
+  earnings, regulation 54A or regulation 32A. Every Universal Credit variable
+  in `variables/gov/dwp/universal_credit/` is defined over a year
+  (`definition_period = YEAR`), so it cannot give the award for one
+  assessment period, still less carry a surplus from one period to the next.
+  `bm.policyengine` already works round the year for a single period, by
+  giving 12 times the monthly amounts and dividing the award by 12. That
+  works only because each period stands alone. Checked in the package source
+  on 30 October 2026.
+- **What is compared instead.** The per-period check against PolicyEngine UK
+  (entry 1, and `bm.checks.run`) is unchanged, and covers the
+  `UniversalCredit` scope that every window step calls. The cross-period
+  rules are checked against Catala's interpreter (replay of every witness)
+  and against an independent reference written from the regulation text
+  (`tests/reference_uc.py`), not against PolicyEngine UK.
+
+Decision: no differential test of the window. If a later PolicyEngine UK
+release models assessment periods and surplus earnings, this entry is
+reopened and a differential test of the window is added.

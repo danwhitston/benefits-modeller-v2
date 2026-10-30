@@ -16,7 +16,10 @@ make export
 ```
 
 builds the plugin and writes `build/uc.bm-ir.json` from the `UniversalCredit`
-scope in `rules/uc.catala_en`. By hand:
+scope in `rules/uc.catala_en`. It also writes `build/claim_window.bm-ir.json`
+from the `ClaimWindow` scope, and `build/claim_window4.bm-ir.json` to
+`build/claim_window6.bm-ir.json` from `ClaimWindow4` to `ClaimWindow6`, which
+only the scaling probe uses. By hand, for one scope:
 
 ```
 opam exec -- dune build --root exporter

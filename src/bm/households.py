@@ -2,7 +2,8 @@
 
 `generate` returns, in this order and without repeats:
 
-1. The fourteen rows of `rules/uc_tests.catala_en`, each starting on 1 May 2026.
+1. The fourteen rows of `rules/uc_tests.catala_en` that test the
+   `UniversalCredit` scope, each starting on 1 May 2026.
 2. For each age band and LCW combination, and for a housing costs element of
    0 and of 500.00 pounds, the work allowance and 1p either side of it. The
    allowance is read from the translated rules, so it is 0 without LCW and
