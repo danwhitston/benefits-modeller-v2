@@ -85,7 +85,7 @@ from pathlib import Path
 from typing import Literal
 
 from bm import catala_run, solvers, units
-from bm.household import Instance, Script, smt_sum
+from bm.household import Instance, Script, facts, smt_sum
 from bm.inputs import Bound, InputSpec, bounds
 from bm.translate import RELAXED_REFUSAL, SmtModule, literal
 
@@ -432,7 +432,7 @@ def _script(
     """The timing script for the numbered cases, its households and each case's gain."""
     script = Script(module, bounds(specs))
     points = {name for _, case in numbered for name in case}
-    facts = _facts(script, specs, fixed, {choice.input, START, *points})
+    shared = facts(script, specs, fixed, {choice.input, START, *points})
 
     first = script.declare("choice.1", "Int")
     script.bound(first, specs[choice.input].bound)
@@ -453,7 +453,7 @@ def _script(
             for kind in ("split", "baseline"):
                 prefix = f"c{c}.p{p}.{kind}"
                 equal = {
-                    **facts,
+                    **shared,
                     START: literal("Int", start),
                     choice.input: amounts[kind, p],
                     **{name: literal("Bool", value) for name, value in case.items()},
@@ -465,22 +465,6 @@ def _script(
                 awards[kind].append(award)
         gains.append(f"(- {smt_sum(awards['split'])} {smt_sum(awards['baseline'])})")
     return script, households, gains
-
-
-def _facts(
-    script: Script, specs: dict[str, InputSpec], fixed: dict[str, int | bool], skip: set[str]
-) -> dict[str, str]:
-    """Declare `fact.<name>` for each input not in `skip`: fixed, or free within its bound."""
-    facts = {}
-    for name, spec in specs.items():
-        if name in skip:
-            continue
-        sort = script.sorts[name]
-        value = literal(sort, fixed[name]) if name in fixed else None
-        facts[name] = script.declare(f"fact.{name}", sort, value)
-        if spec.bound is not None:
-            script.bound(facts[name], spec.bound)
-    return facts
 
 
 def _witnesses(households: list[_Household], model: solvers.Model) -> list[Witness]:
@@ -578,12 +562,12 @@ def judgement_value(
     (start_day,) = (units.days(d) for d in period_starts(start, specs[START].bound, periods=1))
 
     script = Script(module, bounds(specs))
-    facts = _facts(script, specs, fixed, {START, point})
+    shared = facts(script, specs, fixed, {START, point})
     households = []
     awards = []
     for value in (True, False):
         kind = "yes" if value else "no"
-        equal = {**facts, START: literal("Int", start_day), point: literal("Bool", value)}
+        equal = {**shared, START: literal("Int", start_day), point: literal("Bool", value)}
         instance = script.instance(kind, equal=equal)
         award = script.declare(f"bm.award.{kind}", "Int", instance.output(AWARD))
         script.add(f"(assert (> {award} 0))")

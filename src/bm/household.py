@@ -30,7 +30,7 @@ A script for two households, the second earning 100 pence more:
 
 from dataclasses import dataclass, field
 
-from bm.inputs import Bound
+from bm.inputs import Bound, InputSpec
 from bm.translate import SmtModule, apply, literal, quote
 
 
@@ -170,3 +170,23 @@ class Script:
     def text(self, *extra: str) -> str:
         """The script: every line, then `extra`, then `(check-sat)`."""
         return "\n".join([*self.lines, *extra, "(check-sat)"]) + "\n"
+
+
+def facts(
+    script: Script, specs: dict[str, InputSpec], fixed: dict[str, int | bool], skip: set[str]
+) -> dict[str, str]:
+    """Declare `fact.<name>` for each input not in `skip`: fixed, or free within its bound.
+
+    Returns each input's quoted constant, for `Script.instance(equal=...)`, so
+    that every household of a query shares the same facts.
+    """
+    shared = {}
+    for name, spec in specs.items():
+        if name in skip:
+            continue
+        sort = script.sorts[name]
+        value = literal(sort, fixed[name]) if name in fixed else None
+        shared[name] = script.declare(f"fact.{name}", sort, value)
+        if spec.bound is not None:
+            script.bound(shared[name], spec.bound, sort)
+    return shared
