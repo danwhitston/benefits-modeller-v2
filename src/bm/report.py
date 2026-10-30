@@ -578,7 +578,9 @@ def _case_lines(
     return out
 
 
-def _window_verification_line(verification: dict) -> str:
+def _window_verification_line(result: WindowResult) -> str:
+    """The verification line, with a count of the figures replayed; the JSON lists them."""
+    verification = result.verification
     cvc5 = (
         "cvc5 confirmed every figure"
         if verification["cvc5"] == "confirmed"
@@ -588,9 +590,13 @@ def _window_verification_line(verification: dict) -> str:
     if replay == "matched":
         replay = "Catala's interpreter gave the same traced values as Z3 at every witness"
     elif replay == "matched in part":
+        figures = sum(len(case.figures) for case in result.cases)
+        done = len(verification["replayed"])
+        rest = figures - done
         replay = (
             "Catala's interpreter gave the same traced values as Z3 at the witnesses of "
-            f"{'; '.join(verification['replayed'])}; the other figures have no witness"
+            f"{done} of {figures} figures; the other {rest} "
+            f"{'has' if rest == 1 else 'have'} no witness"
         )
     elif replay == "not run":
         replay = "no witness was replayed through Catala"
@@ -651,7 +657,7 @@ def window_text(result: WindowResult, specs: dict[str, InputSpec]) -> list[str]:
         )
     sections.append(_across_lines(result))
     sections.append(["Left out by the last-period rule"] + [f"  - {_prose(note)}" for note in result.excluded])
-    sections.append([_window_verification_line(result.verification)])
+    sections.append([_window_verification_line(result)])
     sections.append(["Caveats"] + [f"  - {line}" for line in WINDOW_CAVEATS])
     return [line for i, section in enumerate(sections) for line in ([""] if i else []) + section]
 

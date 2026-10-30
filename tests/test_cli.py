@@ -1037,6 +1037,18 @@ def test_query_window_shows_every_realistic_case_first_and_an_unavailable_figure
     assert text.index("(realistic)") < text.index("(not the realistic case)")
 
 
+def test_window_text_summarises_a_partial_replay():
+    replayed = ["gain, claim_after_end no", "loss, claim_after_end no"]
+    result = make_window(
+        {"gain": window_figure(1), "loss": window_figure(2), "spread": window_figure(None, "unknown")},
+        verification={"cvc5": "unknown", "replay": "matched in part", "replayed": replayed},
+    )
+    text = "\n".join(report.window_text(result, WINDOW_SPECS))
+    assert "at the witnesses of 2 of 3 figures; the other 1 has no witness" in text
+    assert "claim_after_end no" not in text.split("Verification:")[1].split("\n")[0]
+    assert report.window_json(result, WINDOW_SPECS, None)["verification"]["replayed"] == replayed
+
+
 def test_window_text_maps_identifiers_to_figure_names():
     note = (
         "In the case claim_after_end no, no payday amount P keeps the last-period rule on the"
