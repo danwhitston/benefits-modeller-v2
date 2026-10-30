@@ -28,6 +28,15 @@ Record what worked and what got in the way here as the project goes:
 - Got in the way: Z3's `Optimize` engine had a heavy time tail that depended on what had run earlier in the same process, so tests failed in the full suite and passed alone. Optima are now found by a search of plain Z3 checks in a fresh context, with cvc5 still confirming each one. Measure solver times over several seeds before trusting a single run.
 - Got in the way: the plan fixed one commit trailer for every commit, but implementers ran on different models. Trailers now name the model that wrote each commit, with one earlier exception recorded in `AI-DECLARATION.md`.
 - Cost: 5 of the 11 tasks needed one fix round. The whole-branch review needed one fix wave.
+- Milestone 3 (29 to 30 October 2026): the same process, 12 tasks, with the legal readings researched and checked at source before the design, and evidence on practice gathered during it.
+- Worked: research before design. A checking agent found that the recommended 3-period window let the solver put the nil period last, which would have overstated the gain. The fix (the last period must pay at least 1p) went into the design, not into a later correction.
+- Worked: asking for practice evidence, not just legal text, set the realistic case for each judgement point and found the class that matters (pay that is not monthly).
+- Worked: checking the plan against the installed tools before writing it. Probes showed how Catala 1.3.0 presents a sub-scope, and that both solvers accept the rate encoding the brief said Z3 rejected.
+- Worked: two tasks (the reference model and the research note) ran in their own worktrees alongside the main sequence and were merged locally. The reports were copied out of the worktrees by hand, as before.
+- Worked: the whole-branch reviewer again found what the per-task reviews passed. A lost LCW finding came back one month into a new award, because the reference had been written from the same design text as the rules. Two passages of the research note came close to a per-household target. A judgement point that describes a state needs carried state and a test that spans the period after the change.
+- Got in the way: the design contradicted itself in two places (which period's thresholds measure a surplus, and the LCW wording), and each surfaced only in review. Read each reading against the component text before approving a design.
+- Got in the way: public-text accuracy needed many small fix rounds, including three on the probe write-up. Reviewers' minors on public text were folded into fix rounds under the hostile-check rule.
+- Cost: 9 of the 12 tasks needed at least one fix round (one needed three). The whole-branch review needed one fix wave. About 30 rulings were recorded in the ledger.
 
 ## Project notes
 
