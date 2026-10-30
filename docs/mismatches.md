@@ -93,18 +93,20 @@ The housing costs element is bounded at £804.00 a month in
 `rules/uc.inputs.toml`, so that no modelled household reaches the benefit cap,
 which the rules do not model. See the benefit cap in `docs/model-gaps.md`.
 
-## 2. Windows with a nil assessment period are not compared
+## 2. The claim window is not compared
 
 - **Classification:** deliberate difference: PolicyEngine UK does not model
   the rules that cross assessment periods.
 - **Date:** 30 October 2026. policyengine-uk 2.164.2, Catala 1.3.0.
-- **Which households:** every window of the `ClaimWindow` scope (3
-  consecutive assessment periods) in which earnings take a period to a nil
-  award, so that the end of the award, the claims treated as made under
+- **Which households:** every household and split of the `ClaimWindow`
+  scope (3 consecutive assessment periods). None is compared with
+  PolicyEngine UK, including windows in which every award stays above nil,
+  because PolicyEngine UK cannot represent the window's rules: the end of the
+  award at a nil period, the claims treated as made under
   [regulation 32A](https://www.legislation.gov.uk/uksi/2013/380/regulation/32A)
-  of the Claims and Payments Regulations 2013, or surplus earnings under
+  of the Claims and Payments Regulations 2013, and surplus earnings under
   [regulation 54A](https://www.legislation.gov.uk/uksi/2013/376/regulation/54A)
-  of the Universal Credit Regulations 2013 apply.
+  of the Universal Credit Regulations 2013.
 - **Why there is no comparison.** PolicyEngine UK 2.164.2 has no surplus
   earnings rule and no rule for the end of an award or for a claim treated as
   made: no variable or parameter in the installed package names surplus

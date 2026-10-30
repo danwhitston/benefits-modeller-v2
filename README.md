@@ -6,7 +6,7 @@ Early stage. The first three milestones run end to end for a thin slice of Unive
 
 ## Running it
 
-The versions used and tested on macOS on 29 October 2026 are Catala 1.3.0 on OCaml 5.3.0, and Python 3.14. The steps have not yet been run on Linux. Timings below were measured that day on an Apple Silicon Mac with warm caches; a first build with cold opam caches takes longer.
+The versions used and tested on macOS on 29 October 2026 are Catala 1.3.0 on OCaml 5.3.0, and Python 3.14. The steps have not yet been run on Linux. Timings below were measured on an Apple Silicon Mac with warm caches, on 29 October 2026 unless they give another date; a first build with cold opam caches takes longer.
 
 1. Install opam and the libraries Catala needs.
    - Mac: `brew install opam gmp pkgconf ninja`. The Xcode command-line tools are also needed (`xcode-select --install`).
