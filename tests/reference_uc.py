@@ -1,8 +1,10 @@
 """A reference model of the UC award, for tests only.
 
-It is written from the rules in `rules/uc.catala_en` by hand, in integer pence,
-and shares nothing with the translator or the SMT encoding of a query, so a
-brute force over it can check a solver's optimum independently. Every
+The per-period award is written from the rules in `rules/uc.catala_en` by
+hand, in integer pence. The claim window is written from the regulation text
+and the design's readings (see below). Neither shares anything with the
+translator or the SMT encoding of a query, so a brute force over it can check
+a solver's optimum independently. Every
 assessment period is taken to start on or after 6 April 2026, where the rates
 below apply.
 

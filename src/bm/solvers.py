@@ -82,9 +82,9 @@ class Optimum:
     """The outcome of `optimise_and_confirm`.
 
     `value` and `model` are Z3's optimum (for a `Real` objective, the integer
-    described in `optimise_and_confirm`: the floor of a supremum, or the ceiling
-    of an infimum), and are kept when only cvc5 could not
-    confirm it (`status` "unknown", `confirmed` False). They are None when Z3
+    described in `optimise_and_confirm`: the largest (for a minimum, the
+    smallest) integer the search proves reachable), and are kept when only cvc5
+    could not confirm it (`status` "unknown", `confirmed` False). They are None when Z3
     did not prove an optimum: the script is infeasible, or Z3 answered unknown
     or ran out of time before proving that nothing better exists.
     """
@@ -135,11 +135,9 @@ def optimise_and_confirm(
     optimum.
 
     With `sort="Real"` the objective is declared `Real` and model values may be
-    `Fraction`. Targets stay integers, and the value is the integer that the
-    search proves reachable and furthest in the direction: the floor of the
-    supremum for a maximum, and the ceiling of the infimum for a minimum (an
-    infimum of 0.3 gives 1: an objective of at most 1 is reachable, at most 0 is
-    not). It
+    `Fraction`. Targets stay integers, and the value is the largest (for a
+    minimum, the smallest) integer the search proves reachable (an infimum of
+    0.3 gives 1: an objective of at most 1 is reachable, at most 0 is not). It
     is not the optimum itself, which may lie between integers. cvc5 is then
     asked for an objective at least one beyond the value. This is for relaxed
     probes only (see `bm.translate`), whose results are not findings about the
