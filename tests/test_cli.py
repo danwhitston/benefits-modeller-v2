@@ -849,9 +849,17 @@ def test_query_window_text_for_a_fixed_household(fixed_window):
     assert "realistic" in text
     assert "earnings used" in text and "surplus" in text
     assert "controlled by employer, claimant; checked by third_party_data" in text
-    assert "Passported help is not modelled" in text
-    assert "Reported earnings are taken as exact" in text
+    assert "Council Tax Support" in text and "Healthy Start" in text
+    assert "Reported earnings are taken as exact, although RTI reports can be late or wrong" in text
+    assert "reporting and any later correction are not modelled." in text
     assert "£2,500" in text and "31 March 2027" in text and "29 October 2026" in text
+    assert "S.I. 2015/345 regulation 5" in text and "20 January 2026" in text
+    assert "docs/nil-months.md" in text
+    assert "departures from it" in text
+    assert "(an example of the class, not advice)" in text
+    assert "Pattern: the split" in text and "Copy " not in text
+    assert "extra_payday" not in text
+    assert "Across cases" in text and "smallest" in text
     assert "last-period rule" in text  # the general excluded note
     assert "Provenance" in text
     assert "—" not in text
@@ -876,7 +884,11 @@ def test_query_window_probe_is_labelled_and_leaves_out_the_payday_figures():
     assert err == "" and code == 0
     assert out.startswith("PROBE: not a finding")
     assert "Extra payday" not in out
-    assert out.rstrip().endswith(MODEL_GAPS)
+    assert out.rstrip().endswith("Model gaps that limit the model: docs/model-gaps.md")
+    assert "findings" not in out.split("Caveats")[0].replace("not a finding", "").replace(
+        "not findings", ""
+    )
+    assert "what the rules pay" not in out
     _, js, _ = run_window(*FIXED_HOUSEHOLD, "--probe", "--json", ir_file=WINDOW4_IR)
     data = json.loads(js)
     assert data["probe"] is True and data["periods"] == 4
@@ -888,6 +900,7 @@ def test_query_window_relaxed_probe_skips_replay_and_says_so():
     assert err == "" and code == 0
     assert out.startswith("PROBE: not a finding")
     assert "relaxed" in out.lower() and "not the rules" in out
+    assert "what the rules pay" not in out and MODEL_GAPS not in out
     _, js, _ = run_window(*FIXED_HOUSEHOLD, "--probe", "--relaxed", "--json")
     data = json.loads(js)
     assert data["relaxed"] is True and data["probe"] is True
@@ -1022,3 +1035,64 @@ def test_query_window_shows_every_realistic_case_first_and_an_unavailable_figure
     assert "not available: the even split ends the window at nil" in text
     assert "Households for the other cases are in the --json output." in text
     assert text.index("(realistic)") < text.index("(not the realistic case)")
+
+
+def test_window_text_maps_identifiers_to_figure_names():
+    note = (
+        "In the case claim_after_end no, no payday amount P keeps the last-period rule on the"
+        " even split, so the case has no extra_payday_min."
+    )
+    general = "the copy that the loss, the spread and extra_payday_max subtract is exempt"
+    result = make_window(
+        {"extra_payday_min": window_figure(None, "infeasible"), "gain": window_figure(1)},
+        excluded=[note, general],
+    )
+    text = "\n".join(report.window_text(result, WINDOW_SPECS))
+    assert "extra_payday" not in text and "copy" not in text
+    assert "so the case has no smallest extra payday figure." in text
+    assert "not available: no payday amount P keeps" in text
+    assert "and the largest extra payday figure subtract" in text
+    assert "extra_payday_min" in report.window_json(result, WINDOW_SPECS, None)["excluded"][1]
+
+
+def make_two_cases(figs_a, figs_b):
+    from bm.window import CaseResult
+
+    return make_window(
+        figs_a,
+        cases=[
+            CaseResult({"claim_after_end": True}, True, figs_a),
+            CaseResult({"claim_after_end": False}, False, figs_b),
+        ],
+    )
+
+
+def test_window_across_cases_gives_largest_and_smallest_with_their_cases():
+    result = make_two_cases(
+        {"gain": window_figure(500), "loss": window_figure(40)},
+        {"gain": window_figure(900), "loss": window_figure(70, lower_bound=True)},
+    )
+    data = report.window_json(result, WINDOW_SPECS, None)["across_cases"]
+    assert data["gain"]["largest"] == {
+        "value": 900, "case": {"claim_after_end": False}, "realistic": False, "lower_bound": False,
+    }  # fmt: skip
+    assert data["gain"]["smallest"]["value"] == 500 and data["gain"]["smallest"]["realistic"] is True
+    # The loss in the second case is only a lower bound, so the largest is too; the smallest is exact.
+    assert data["loss"]["largest"]["lower_bound"] is True
+    assert data["loss"]["smallest"]["lower_bound"] is False
+    text = "\n".join(report.window_text(result, WINDOW_SPECS))
+    assert "Gain: largest £9.00, in the case claim_after_end no (not the realistic case); smallest £5.00" in text
+    assert "Loss: largest at least £0.70" in text and "smallest £0.40" in text
+
+
+def test_window_across_cases_leaves_out_and_counts_unsettled_values():
+    result = make_two_cases(
+        {"gain": window_figure(500), "loss": window_figure(None, "unknown")},
+        {"gain": window_figure(None, "infeasible"), "loss": window_figure(None, "infeasible")},
+    )
+    data = report.window_json(result, WINDOW_SPECS, None)["across_cases"]
+    assert data["gain"]["left_out"] == {"infeasible": 1, "unknown": 0}
+    assert data["loss"]["largest"] is None and data["loss"]["left_out"] == {"infeasible": 1, "unknown": 1}
+    text = "\n".join(report.window_text(result, WINDOW_SPECS))
+    assert "left out: 1 not available" in text
+    assert "Loss: no value in any case; left out: 1 not available, 1 unknown" in text

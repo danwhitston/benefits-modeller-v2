@@ -20,7 +20,7 @@ Exit status: 0 when there are no errors, 1 on any failure (a missing file, a
 solver disagreement, a coverage gap, an unexplained mismatch), and 2 when a
 result is unknown, for example after a timeout. A failure takes precedence.
 Every `--json` output has a top-level `"unknown"` flag, and every text output
-ends by pointing to docs/model-gaps.md.
+ends by pointing to docs/model-gaps.md (a probe's, to the gaps that limit the model).
 
 `--fix NAME=VALUE` gives an input a value: money in pounds with two decimal
 places (`500.00`), a date as `YYYY-MM-DD`, a Boolean as `true` or `false`.
@@ -172,8 +172,8 @@ def _load(args: argparse.Namespace):
     return prov, module, inputs.bounds(specs)
 
 
-def _print_text(sections: list[list[str]]) -> None:
-    sections = [*sections, [report.MODEL_GAPS_LINE]]
+def _print_text(sections: list[list[str]], gaps: str = report.MODEL_GAPS_LINE) -> None:
+    sections = [*sections, [gaps]]
     print("\n\n".join("\n".join(s) for s in sections))
 
 
@@ -294,7 +294,10 @@ def _query_window(args: argparse.Namespace) -> int:
     if args.json:
         print(json.dumps(report.window_json(result, specs, prov), indent=2))
     else:
-        _print_text([report.window_text(result, specs), report.window_provenance_text(prov, result)])
+        _print_text(
+            [report.window_text(result, specs), report.window_provenance_text(prov, result)],
+            gaps=report.PROBE_MODEL_GAPS_LINE if result.probe else report.MODEL_GAPS_LINE,
+        )
     return 2 if result.status == "unknown" else 0
 
 

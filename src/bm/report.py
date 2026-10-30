@@ -45,6 +45,7 @@ UNITS = "money in pence; dates as days since 1970-01-01"
 MISMATCH_DOC = "docs/mismatches.md"
 RULES_FILE = "uc.catala_en"
 MODEL_GAPS_LINE = "Model gaps that limit these findings: docs/model-gaps.md"
+PROBE_MODEL_GAPS_LINE = "Model gaps that limit the model: docs/model-gaps.md"
 TIMING_INPUT = "earned_income"
 JUDGEMENT_POINT = "has_lcw"
 
@@ -343,13 +344,15 @@ def judgement_text(result: JudgementResult, specs: dict[str, InputSpec]) -> list
 # The window query
 
 WINDOW_CAVEATS = [
-    "Passported help is not modelled: help that depends on receiving Universal Credit is not "
-    "counted in any figure.",
-    "Reported earnings are taken as exact: how earnings are reported, and any later correction "
-    "of a report, are not modelled.",
-    "The figures depend on the surplus earnings threshold of the nil UC threshold plus £2,500, a "
-    "level that ends on 31 March 2027, and on DWP's practice of checking income each month after "
-    "a nil period; both are as at 29 October 2026.",
+    "Passported help (such as help with NHS costs and Healthy Start) and Council Tax Support are "
+    "not modelled: only the Universal Credit award is counted.",
+    "Reported earnings are taken as exact, although RTI reports can be late or wrong; reporting "
+    "and any later correction are not modelled.",
+    "The realistic case rests on DWP's practice of checking income each month after a nil "
+    "period, and the other cases model departures from it. The £2,500 is added to the nil UC "
+    "threshold to give the relevant threshold for surplus earnings, and is currently set to end "
+    "on 31 March 2027 (S.I. 2015/345 regulation 5, and the Secretary of State's determination "
+    "of 20 January 2026). Both are as at 29 October 2026; see docs/nil-months.md.",
 ]
 _WINDOW_LABELS = {
     "gain": "Gain from timing alone (largest)",
@@ -367,7 +370,16 @@ _WINDOW_DEFINITIONS = [
     "extra payday: for a claimant paid every four weeks, the award over the window when the "
     "four payments are spread evenly less the award when they fall as (P, 2P, P) in the three "
     "periods; a negative amount means the (P, 2P, P) pattern pays more.",
+    "pattern: one way the total is paid out over the periods. Each figure compares patterns "
+    "for the same household, so only the earnings differ between them.",
 ]
+_ACROSS_LABELS = {
+    "gain": "Gain",
+    "loss": "Loss",
+    "spread": "Spread",
+    "extra_payday_max": "Extra payday, largest figure",
+    "extra_payday_min": "Extra payday, smallest figure",
+}
 _SHORT = {
     "gain": "gain",
     "loss": "loss",
@@ -380,13 +392,20 @@ _COPY_WORDS = {
     "even": "the even split",
     "a": "split a",
     "b": "split b",
-    "payday": "the pattern (P, 2P, P)",
+    "payday": "the (P, 2P, P) payments",
 }
 _FACT_BASES = ("start", "earnings")
 
 
 def _at_least(figure: Figure) -> str:
     return "at least " if figure.lower_bound else ""
+
+
+def _prose(note: str) -> str:
+    """A note from bm.window in the words of the report, with figure names for identifiers."""
+    for name, words in (("extra_payday_max", "largest extra payday figure"), ("extra_payday_min", "smallest extra payday figure")):
+        note = note.replace(f"has no {name}", f"has no {words}").replace(name, f"the {words}")
+    return note.replace("the copy that", "the pattern that")
 
 
 def _reason(excluded: list[str], case: CaseResult, name: str) -> str:
@@ -396,6 +415,60 @@ def _reason(excluded: list[str], case: CaseResult, name: str) -> str:
         if note.startswith(lead) and (note.endswith(f"has no {name}.") or note.endswith("has no figures.")):
             return note[len(lead):]
     return "no split keeps the last-period rule"
+
+
+def _case_name(case: CaseResult) -> str:
+    label = strategic.case_label(case.case) if case.case else "judgement points fixed by the caller"
+    return f"{label} ({'realistic' if case.realistic else 'not the realistic case'})"
+
+
+def _across(result: WindowResult) -> dict:
+    """The largest and the smallest of each figure across the cases, and what was left out.
+
+    Only settled values count: a figure that is unknown, or not available, is left out and
+    counted. A largest value is a lower bound ("at least") when any figure counted for that name
+    is one, since the case that is only bounded could be larger. A smallest value is one when
+    the case giving it is, since the others are not smaller.
+    """
+    names = list(result.cases[0].figures) if result.cases else []
+    out = {}
+    for name in names:
+        found = [(c, c.figures[name]) for c in result.cases if c.figures[name].status == "optimal"]
+        left = {
+            "infeasible": sum(c.figures[name].status == "infeasible" for c in result.cases),
+            "unknown": sum(c.figures[name].status == "unknown" for c in result.cases),
+        }
+        entry = {"largest": None, "smallest": None, "left_out": left}
+        if found:
+            top = max(found, key=lambda cf: cf[1].value)  # the first case wins a tie
+            bottom = min(found, key=lambda cf: cf[1].value)
+            any_bound = any(f.lower_bound for _, f in found)
+            entry["largest"] = {"case": top[0], "figure": top[1], "lower_bound": any_bound}
+            entry["smallest"] = {"case": bottom[0], "figure": bottom[1], "lower_bound": bottom[1].lower_bound}
+        out[name] = entry
+    return out
+
+
+def _across_lines(result: WindowResult) -> list[str]:
+    out = [
+        "Across cases",
+        "  The largest and the smallest value of each figure over the cases above, and the case "
+        "that gives each. A figure that is unknown or not available in a case is left out.",
+    ]
+    for name, entry in _across(result).items():
+        left = entry["left_out"]
+        gone = [f"{n} {what}" for what, n in (("not available", left["infeasible"]), ("unknown", left["unknown"])) if n]
+        note = f"; left out: {', '.join(gone)}" if gone else ""
+        if entry["largest"] is None:
+            out.append(f"  {_ACROSS_LABELS[name]}: no value in any case{note}")
+            continue
+        parts = []
+        for which in ("largest", "smallest"):
+            found = entry[which]
+            amount = f"{'at least ' if found['lower_bound'] else ''}{money(found['figure'].value)}"
+            parts.append(f"{which} {amount}, in the case {_case_name(found['case'])}")
+        out.append(f"  {_ACROSS_LABELS[name]}: {'; '.join(parts)}{note}")
+    return out
 
 
 def _figure_text(figure: Figure, reason: str) -> str:
@@ -467,7 +540,7 @@ def _copy_lines(starts: list[int], figure: Figure) -> list[str]:
         paid = sum(p.earnings for p in w.trace)
         total = sum(p.award for p in w.trace)
         out.append(
-            f"Copy {w.copy}, {_COPY_WORDS[w.copy]}: earnings {money(paid)} in all, "
+            f"Pattern: {_COPY_WORDS[w.copy]}: earnings {money(paid)} in all, "
             f"award {money(total)} in all"
         )
         out += _indent(_trace_lines(starts, w), 2)
@@ -477,10 +550,9 @@ def _copy_lines(starts: list[int], figure: Figure) -> list[str]:
 def _case_lines(
     result: WindowResult, specs: dict[str, InputSpec], case: CaseResult, show: bool
 ) -> list[str]:
-    label = strategic.case_label(case.case) if case.case else "judgement points fixed by the caller"
-    out = [f"Case: {label} ({'realistic' if case.realistic else 'not the realistic case'})"]
+    out = [f"Case: {_case_name(case)}"]
     for name, figure in case.figures.items():
-        reason = _reason(result.excluded, case, name)
+        reason = _prose(_reason(result.excluded, case, name))
         out.append(f"  {_WINDOW_LABELS[name]}: {_figure_text(figure, reason)}")
     if any(f.lower_bound for f in case.figures.values()):
         out.append(
@@ -492,12 +564,16 @@ def _case_lines(
         # The facts are the same at every optimum where the caller fixed them all.
         shared = len({tuple(_facts(f).items()) for f in found.values()}) == 1
         if shared:
-            out.append("  Household facts at every optimum below:")
+            out.append("  Household facts, the same in every example below:")
             out += _indent(_fact_lines(specs, _facts(next(iter(found.values())))), 4)
         for name, figure in found.items():
-            out.append(f"  Households at the {_SHORT[name]}, {_figure_text(figure, '')}:")
+            out.append(
+                f"  One household the solver found at the {_SHORT[name]}, "
+                f"{_figure_text(figure, '')} (an example of the class, not advice):"
+            )
             if not shared:
-                out += _indent(_fact_lines(specs, _facts(figure)), 4)
+                out.append("    Household facts:")
+                out += _indent(_fact_lines(specs, _facts(figure)), 6)
             out += _indent(_copy_lines(result.starts, figure), 4)
     return out
 
@@ -541,9 +617,12 @@ def window_text(result: WindowResult, specs: dict[str, InputSpec]) -> list[str]:
             "  UNKNOWN: at least one figure below is not settled, which is not the same as "
             "nothing found"
         )
+    if not result.probe:
+        head.append(
+            "  The figures say what the rules pay for a class of household and a pattern of "
+            "earnings within the model's bounds. They are not advice on any particular claim."
+        )
     head += [
-        "  The figures say what the rules pay for a class of household and a pattern of "
-        "earnings within the model's bounds. They are not advice on any particular claim.",
         "  Periods start: " + ", ".join(units.to_date(d).isoformat() for d in result.starts),
         "  Total of earnings over the window: "
         + (
@@ -570,7 +649,8 @@ def window_text(result: WindowResult, specs: dict[str, InputSpec]) -> list[str]:
         sections[-1].append(
             "Households for the other cases are in the --json output."
         )
-    sections.append(["Left out by the last-period rule"] + [f"  - {note}" for note in result.excluded])
+    sections.append(_across_lines(result))
+    sections.append(["Left out by the last-period rule"] + [f"  - {_prose(note)}" for note in result.excluded])
     sections.append([_window_verification_line(result.verification)])
     sections.append(["Caveats"] + [f"  - {line}" for line in WINDOW_CAVEATS])
     return [line for i, section in enumerate(sections) for line in ([""] if i else []) + section]
@@ -803,6 +883,23 @@ def window_json(result: WindowResult, specs: dict[str, InputSpec], prov: Provena
             }
             for case in result.cases
         ],
+        "across_cases": {
+            name: {
+                **{
+                    which: None
+                    if entry[which] is None
+                    else {
+                        "value": entry[which]["figure"].value,
+                        "case": entry[which]["case"].case,
+                        "realistic": entry[which]["case"].realistic,
+                        "lower_bound": entry[which]["lower_bound"],
+                    }
+                    for which in ("largest", "smallest")
+                },
+                "left_out": entry["left_out"],
+            }
+            for name, entry in _across(result).items()
+        },
         "excluded": result.excluded,
         "verification": result.verification,
         "solver_versions": result.versions,
