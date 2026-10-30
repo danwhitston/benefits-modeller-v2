@@ -51,6 +51,12 @@ BM_ROUND_RELAXED = "(define-fun bm_round ((q Real)) Real q)"
 RELAXED_SORTS = {**SORTS, "money": "Real"}
 
 
+RELAXED_REFUSAL = (
+    "this module is a relaxed translation, which is for probes only and is not the rules;"
+    " it cannot answer a query that reports findings"
+)
+
+
 class TranslateError(ValueError):
     """The scope cannot be translated exactly."""
 

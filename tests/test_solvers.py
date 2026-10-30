@@ -320,3 +320,11 @@ def test_real_constants_are_read_as_fractions_when_asked(solver):
     result = solvers.run(solver, script, 10_000, reals=True)
     assert result.model == {"r": Fraction(11, 2)}
     assert isinstance(result.model["r"], Fraction)
+
+
+def test_real_minimum_with_a_fractional_infimum_is_the_ceiling():
+    # The least x is 0.3: x <= 1 is reachable and x <= 0 is proved out of reach.
+    lines = ["(declare-const x Real)", "(assert (and (<= 0.3 x) (<= x 2.5)))"]
+    result = solvers.optimise_and_confirm(lines, "x", "min", 10_000, sort="Real")
+    assert (result.status, result.value, result.confirmed) == ("optimal", 1, True)
+    assert Fraction(3, 10) <= result.model["x"] <= 1

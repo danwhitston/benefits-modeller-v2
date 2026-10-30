@@ -142,3 +142,24 @@ def test_instance_refuses_fixed_and_equal_overlap():
     module, bounds = _loaded()
     with pytest.raises(ValueError, match="has_lcw"):
         Script(module, bounds).instance(fixed={"has_lcw": True}, equal={"has_lcw": "true"})
+
+
+def test_bounds_on_real_inputs_only_in_a_relaxed_module(tmp_path):
+    from test_translate import document, load_doc, output, var
+
+    from bm.inputs import Bound
+
+    # In the exact translation only Int inputs take a bound, so a decimal input
+    # does not. The relaxed translation (a probe) makes money Real and allows
+    # a bound on a Real input.
+    doc = document(
+        [("r", "decimal"), ("m", "money")],
+        [("x", "money", output(var("m")))],
+        ["x"],
+    )
+    scope = load_doc(tmp_path, doc)
+    money = {"m": Bound("money", 0, 100)}
+    Script(translate.translate(scope), money)  # Int money: fine
+    Script(translate.translate(scope, relaxed=True), money)
+    with pytest.raises(ValueError, match="r is Real, which takes no bound"):
+        Script(translate.translate(scope), {"r": Bound("decimal", 0, 1)})

@@ -167,3 +167,10 @@ def test_emr_guards_obligations_at_e_plus_delta():
     result = queries.emr(module, bounds)
     assert result.status == "found"
     assert result.drop == 0
+
+
+def test_emr_refuses_a_relaxed_module():
+    _, bounds = _loaded()
+    relaxed = translate.translate(ir.load(UC_IR), relaxed=True)
+    with pytest.raises(ValueError, match="relaxed.*probes only"):
+        queries.emr(relaxed, bounds)

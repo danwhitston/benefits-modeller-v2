@@ -87,7 +87,7 @@ from typing import Literal
 from bm import catala_run, solvers, units
 from bm.household import Instance, Script, smt_sum
 from bm.inputs import Bound, InputSpec, bounds
-from bm.translate import SmtModule, literal
+from bm.translate import RELAXED_REFUSAL, SmtModule, literal
 
 ROOT = Path(__file__).resolve().parents[2]
 RULES = ROOT / "rules" / "uc.catala_en"
@@ -305,8 +305,11 @@ def timing(
     Raises `QueryRefused` for a query it cannot answer, `NoHousehold` if no
     split keeps every award above nil, `SolverDisagreement` if cvc5 finds a
     better gain than Z3's optimum, and `ReplayMismatch` if Catala's award at a
-    witness differs from Z3's.
+    witness differs from Z3's. `QueryRefused` also covers a relaxed module,
+    which is not the rules.
     """
+    if module.relaxed:
+        raise QueryRefused(f"timing cannot be answered: {RELAXED_REFUSAL}")
     fixed = close_fixed(specs, fixed or {})
     check_choice(specs, choice)
     for name in fixed:
@@ -556,7 +559,10 @@ def judgement_value(
     `NoHousehold` if no household keeps both awards above nil,
     `SolverDisagreement` if cvc5 finds a better value than Z3's optimum, and
     `ReplayMismatch` if Catala's award at a witness differs from Z3's.
+    `QueryRefused` also covers a relaxed module, which is not the rules.
     """
+    if module.relaxed:
+        raise QueryRefused(f"judgement_value cannot be answered: {RELAXED_REFUSAL}")
     fixed = close_fixed(specs, fixed or {})
     for name in fixed:
         if name not in specs:

@@ -562,3 +562,15 @@ def test_judgement_no_household():
     fixed = {"housing_costs_element": 0, "aged_25_or_over": True, "earned_income": 200_000}
     with pytest.raises(NoHousehold):
         judgement_value(_module(), SPECS, "has_lcw", fixed=fixed, rules=None)
+
+
+def test_timing_refuses_a_relaxed_module():
+    relaxed = translate.translate(SCOPE, relaxed=True)
+    with pytest.raises(QueryRefused, match="relaxed.*probes only"):
+        timing(relaxed, SPECS)
+
+
+def test_judgement_value_refuses_a_relaxed_module():
+    relaxed = translate.translate(SCOPE, relaxed=True)
+    with pytest.raises(QueryRefused, match="relaxed.*probes only"):
+        judgement_value(relaxed, SPECS, "has_lcw")

@@ -90,7 +90,8 @@ class Script:
         if unknown := sorted(set(self.bounds) - set(self.sorts)):
             raise ValueError(f"bounds for unknown inputs {unknown}")
         for name in self.bounds:
-            if self.sorts[name] not in ("Int", "Real"):
+            # Real inputs take a bound only in a relaxed module (a probe).
+            if self.sorts[name] != "Int" and not (module.relaxed and self.sorts[name] == "Real"):
                 raise ValueError(f"{name} is {self.sorts[name]}, which takes no bound")
         self._prefixes: set[str] = set()
         self._declared: set[str] = set()
